@@ -1,0 +1,6 @@
+node_modules
+dist
+.env
+.netlify
+.DS_Store
+data/cards.json

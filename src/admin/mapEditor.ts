@@ -1,0 +1,129 @@
+import type { InfoCard } from "../shared/types";
+import { MAP_REFERENCE_PATH } from "../shared/types";
+
+export interface MapEditorCallbacks {
+  onPinMove: (mapX: number, mapY: number) => void;
+}
+
+export interface MapEditorOptions {
+  cards: InfoCard[];
+  selectedId: string | null;
+  draftPosition?: { mapX: number; mapY: number };
+}
+
+export function createMapEditor(
+  container: HTMLElement,
+  options: MapEditorOptions,
+  callbacks: MapEditorCallbacks
+): { setSelectedPin: (mapX: number, mapY: number) => void; destroy: () => void } {
+  const { cards, selectedId, draftPosition } = options;
+
+  container.innerHTML = `
+    <div class="map-editor">
+      <img src="${MAP_REFERENCE_PATH}" alt="Map reference" class="map-editor__image" draggable="false" />
+      <div class="map-editor__missing" hidden>
+        Add <code>public/map-reference.jpg</code> to place pins visually.
+      </div>
+      <div class="map-editor__pins"></div>
+    </div>
+  `;
+
+  const image = container.querySelector(".map-editor__image") as HTMLImageElement;
+  const missing = container.querySelector(".map-editor__missing") as HTMLElement;
+  const pinsLayer = container.querySelector(".map-editor__pins") as HTMLElement;
+  let selectedPin: HTMLButtonElement | null = null;
+
+  image.addEventListener("error", () => {
+    image.style.display = "none";
+    missing.hidden = false;
+  });
+
+  function renderPins(): void {
+    pinsLayer.innerHTML = "";
+    selectedPin = null;
+
+    for (const card of cards) {
+      const pin = createPin(card.id, card.title, card.id === selectedId);
+      positionPin(pin, card.mapX, card.mapY);
+      pinsLayer.appendChild(pin);
+    }
+
+    if (!selectedId && draftPosition) {
+      selectedPin = createPin("draft", "New location", true);
+      positionPin(selectedPin, draftPosition.mapX, draftPosition.mapY);
+      pinsLayer.appendChild(selectedPin);
+    }
+  }
+
+  function createPin(id: string, title: string, selected: boolean): HTMLButtonElement {
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.className = "map-editor__pin";
+    pin.title = title;
+    pin.dataset.id = id;
+    if (selected) {
+      pin.classList.add("map-editor__pin--selected");
+      selectedPin = pin;
+    }
+    return pin;
+  }
+
+  function positionPin(pin: HTMLElement, mapX: number, mapY: number): void {
+    pin.style.left = `${mapX * 100}%`;
+    pin.style.top = `${mapY * 100}%`;
+  }
+
+  function pointerToMapXY(event: PointerEvent): { mapX: number; mapY: number } | null {
+    const rect = image.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    return {
+      mapX: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+      mapY: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+    };
+  }
+
+  let dragging = false;
+
+  const onPointerDown = (event: PointerEvent): void => {
+    const target = (event.target as HTMLElement).closest(".map-editor__pin") as HTMLButtonElement | null;
+    if (!target?.classList.contains("map-editor__pin--selected")) return;
+    dragging = true;
+    target.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const onPointerMove = (event: PointerEvent): void => {
+    if (!dragging || !selectedPin) return;
+    const coords = pointerToMapXY(event);
+    if (!coords) return;
+    positionPin(selectedPin, coords.mapX, coords.mapY);
+    callbacks.onPinMove(coords.mapX, coords.mapY);
+  };
+
+  const stopDrag = (): void => {
+    dragging = false;
+  };
+
+  pinsLayer.addEventListener("pointerdown", onPointerDown);
+  pinsLayer.addEventListener("pointermove", onPointerMove);
+  pinsLayer.addEventListener("pointerup", stopDrag);
+  pinsLayer.addEventListener("pointercancel", stopDrag);
+
+  renderPins();
+
+  return {
+    setSelectedPin(mapX: number, mapY: number): void {
+      if (selectedPin) positionPin(selectedPin, mapX, mapY);
+    },
+    destroy(): void {
+      pinsLayer.removeEventListener("pointerdown", onPointerDown);
+      pinsLayer.removeEventListener("pointermove", onPointerMove);
+      pinsLayer.removeEventListener("pointerup", stopDrag);
+      pinsLayer.removeEventListener("pointercancel", stopDrag);
+    },
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}

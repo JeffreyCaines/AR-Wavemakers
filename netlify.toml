@@ -1,0 +1,20 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[dev]
+  command = "npm run dev"
+  targetPort = 5173
+  port = 8888
+  autoLaunch = false
+
+# /api/* is served by netlify/functions/api.ts via its `config.path` binding,
+# which preserves the full request path (including /cards/:id and /geocode).
+
+# SPA fallback so /admin and deep links resolve to the Vite entry.
+# Function routes take precedence, so /api/* is unaffected.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

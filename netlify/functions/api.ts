@@ -1,0 +1,174 @@
+import type { Config, Context } from "@netlify/functions";
+import type { InfoCard } from "../../src/shared/types";
+import {
+  isAuthorized,
+  jsonResponse,
+  loadCards,
+  newId,
+  saveCards,
+  unauthorized,
+} from "./_shared/storage";
+
+const DEFAULT_GEOCODER_URL = "https://nominatim.openstreetmap.org/search";
+// Nominatim usage policy: absolute max of 1 request/second.
+const MIN_GEOCODE_INTERVAL_MS = 1100;
+
+// Module-scoped state persists across warm function invocations: cache repeated
+// queries (policy requirement) and rate-limit outbound requests.
+const geocodeCache = new Map<string, { lat: number; lng: number; displayName: string }>();
+let lastGeocodeAt = 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Strip trailing slashes and the function prefix so routing sees `/api/...`. */
+function normalizePath(rawPath: string): string {
+  const path = rawPath.replace(/\/+$/, "");
+  return path.replace(/^\/\.netlify\/functions\/api/, "/api");
+}
+
+function getCardId(path: string): string | null {
+  const match = path.match(/\/cards\/([^/]+)$/);
+  if (!match || match[1] === "all") return null;
+  return match[1];
+}
+
+async function handleCards(req: Request, path: string): Promise<Response> {
+  const method = req.method;
+  const cardId = getCardId(path);
+  const isAllRoute = path.endsWith("/cards/all");
+
+  if (method === "GET" && isAllRoute) {
+    if (!isAuthorized(req.headers)) return unauthorized();
+    return jsonResponse(await loadCards());
+  }
+
+  if (method === "GET" && !cardId) {
+    const cards = (await loadCards()).filter((card) => card.active);
+    return jsonResponse(cards);
+  }
+
+  if (!isAuthorized(req.headers)) return unauthorized();
+
+  if (method === "POST" && !cardId) {
+    const body = (await readJson(req)) as Omit<InfoCard, "id">;
+    const cards = await loadCards();
+    const card: InfoCard = { ...body, id: newId() };
+    cards.push(card);
+    await saveCards(cards);
+    return jsonResponse(card, 201);
+  }
+
+  if (method === "PUT" && cardId) {
+    const body = (await readJson(req)) as Partial<InfoCard>;
+    const cards = await loadCards();
+    const index = cards.findIndex((c) => c.id === cardId);
+    if (index === -1) return jsonResponse({ error: "Not found" }, 404);
+    cards[index] = { ...cards[index], ...body, id: cardId };
+    await saveCards(cards);
+    return jsonResponse(cards[index]);
+  }
+
+  if (method === "DELETE" && cardId) {
+    const cards = await loadCards();
+    const next = cards.filter((c) => c.id !== cardId);
+    if (next.length === cards.length) return jsonResponse({ error: "Not found" }, 404);
+    await saveCards(next);
+    return jsonResponse({ ok: true });
+  }
+
+  return jsonResponse({ error: "Method not allowed" }, 405);
+}
+
+async function handleGeocode(req: Request, url: URL): Promise<Response> {
+  if (req.method !== "GET") {
+    return jsonResponse({ error: "Method not allowed" }, 405);
+  }
+
+  if (!isAuthorized(req.headers)) return unauthorized();
+
+  const query = url.searchParams.get("q")?.trim();
+  if (!query) return jsonResponse({ error: "Missing query parameter q" }, 400);
+
+  const cacheKey = query.toLowerCase();
+  const cached = geocodeCache.get(cacheKey);
+  if (cached) return jsonResponse(cached);
+
+  // Endpoint is configurable so the geocoding service can be switched at the
+  // provider's request without a code change/redeploy (Nominatim policy).
+  const endpoint = process.env.GEOCODER_URL || DEFAULT_GEOCODER_URL;
+  const email = process.env.NOMINATIM_EMAIL;
+
+  const params = new URLSearchParams({ q: query, format: "json", limit: "1" });
+  if (email) params.set("email", email);
+
+  // Identify the application (never a stock library UA) and a contact if provided.
+  const userAgent = email ? `NL-World-Map-AR/1.0 (+${email})` : "NL-World-Map-AR/1.0";
+
+  // Honor the 1 request/second cap within a warm function instance.
+  const sinceLast = Date.now() - lastGeocodeAt;
+  if (sinceLast < MIN_GEOCODE_INTERVAL_MS) {
+    await sleep(MIN_GEOCODE_INTERVAL_MS - sinceLast);
+  }
+  lastGeocodeAt = Date.now();
+
+  let response: Response;
+  try {
+    response = await fetch(`${endpoint}?${params.toString()}`, {
+      headers: { "User-Agent": userAgent, Accept: "application/json" },
+    });
+  } catch {
+    return jsonResponse({ error: "Geocoding request failed" }, 502);
+  }
+
+  if (!response.ok) return jsonResponse({ error: "Geocoding failed" }, 502);
+
+  const results = (await response.json()) as Array<{
+    lat: string;
+    lon: string;
+    display_name: string;
+  }>;
+
+  if (results.length === 0) return jsonResponse({ error: "Address not found" }, 404);
+
+  const hit = results[0];
+  const result = {
+    lat: parseFloat(hit.lat),
+    lng: parseFloat(hit.lon),
+    displayName: hit.display_name,
+  };
+
+  // Cache results so repeated identical queries are not re-sent (policy requirement).
+  if (geocodeCache.size > 500) geocodeCache.clear();
+  geocodeCache.set(cacheKey, result);
+
+  return jsonResponse(result);
+}
+
+async function readJson(req: Request): Promise<unknown> {
+  try {
+    return await req.json();
+  } catch {
+    return {};
+  }
+}
+
+export default async (req: Request, _context: Context): Promise<Response> => {
+  const url = new URL(req.url);
+  const path = normalizePath(url.pathname);
+
+  if (path.endsWith("/geocode")) {
+    return handleGeocode(req, url);
+  }
+
+  if (path.includes("/cards")) {
+    return handleCards(req, path);
+  }
+
+  return jsonResponse({ error: "Not found" }, 404);
+};
+
+export const config: Config = {
+  path: "/api/*",
+};
