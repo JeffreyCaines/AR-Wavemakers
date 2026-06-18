@@ -11,11 +11,20 @@ body {
   margin: 0;
   padding: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  height: 100%;
+  min-height: 100dvh;
+}
+
+#app {
+  height: 100%;
+  min-height: 100dvh;
 }
 
 .ar-app {
   position: fixed;
   inset: 0;
+  height: 100%;
+  min-height: 100dvh;
   background: #0a1628;
   color: #f4f7fb;
   overflow: hidden;
@@ -148,6 +157,18 @@ body {
   font-size: 0.8rem;
   opacity: 0.75;
   padding-bottom: 0.5rem;
+}
+
+.ar-app--landscape .ar-instructions {
+  display: none !important;
+}
+
+.ar-app--landscape.ar-app--running .ar-btn {
+  display: none;
+}
+
+.ar-app--sheet-open .ar-crosshair {
+  display: none;
 }
 
 .ar-card-marker-host,
@@ -331,53 +352,39 @@ body {
   margin-top: 0.65rem;
 }
 
-@media (orientation: landscape) {
-  .ar-instructions {
-    display: none;
-  }
+.ar-app--landscape .ar-sheet {
+  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
 
-  .ar-ui {
-    padding:
-      calc(env(safe-area-inset-top, 0px) + 0.5rem)
-      calc(env(safe-area-inset-right, 0px) + 0.5rem)
-      calc(env(safe-area-inset-bottom, 0px) + 0.5rem)
-      calc(env(safe-area-inset-left, 0px) + 0.5rem);
-  }
+.ar-app--landscape .ar-sheet-backdrop--visible {
+  opacity: 0;
+  pointer-events: auto;
+}
 
-  .ar-sheet {
-    inset: 0;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 100%;
-    max-height: none;
-    border-radius: 0;
-    border: none;
-    box-shadow: none;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
+.ar-app--landscape .ar-sheet__body {
+  padding:
+    0.5rem
+    calc(env(safe-area-inset-right, 0px) + 1.25rem)
+    1.25rem
+    calc(env(safe-area-inset-left, 0px) + 1.25rem);
+}
 
-  .ar-sheet-backdrop--visible {
-    opacity: 0;
-    pointer-events: auto;
-  }
+.ar-app--landscape .ar-sheet__body .ar-card__title {
+  font-size: 1.25rem;
+}
 
-  .ar-sheet__body {
-    padding:
-      0.5rem
-      calc(env(safe-area-inset-right, 0px) + 1.25rem)
-      1.25rem
-      calc(env(safe-area-inset-left, 0px) + 1.25rem);
-  }
-
-  .ar-sheet__body .ar-card__title {
-    font-size: 1.25rem;
-  }
-
-  .ar-sheet__body .ar-card__body {
-    font-size: 1rem;
-    line-height: 1.45;
-  }
+.ar-app--landscape .ar-sheet__body .ar-card__body {
+  font-size: 1rem;
+  line-height: 1.45;
 }

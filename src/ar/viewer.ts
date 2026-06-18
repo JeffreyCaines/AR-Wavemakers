@@ -57,16 +57,24 @@ export function initArViewer(root: HTMLElement): void {
   let aspectRatio = DEFAULT_MAP_ASPECT_RATIO;
   let tracking = false;
   let sheetTimer: ReturnType<typeof setTimeout> | null = null;
+  let loseTargetTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingSheetCardId: string | null = null;
   let activeCardTracker: ActiveCardTracker | null = null;
+  const arApp = root.querySelector(".ar-app") as HTMLElement;
 
   const sheetBackdrop = root.querySelector("#ar-sheet-backdrop") as HTMLElement;
   const sheetEl = root.querySelector("#ar-sheet") as HTMLElement;
   const sheetContent = root.querySelector("#ar-sheet-content") as HTMLElement;
-  const detailSheet = createCardDetailSheet(sheetBackdrop, sheetEl, sheetContent, () => {
-    clearSheetTimer();
-    pendingSheetCardId = null;
+  const detailSheet = createCardDetailSheet(sheetBackdrop, sheetEl, sheetContent, {
+    onOpen: () => arApp.classList.add("ar-app--sheet-open"),
+    onDismiss: () => {
+      clearSheetTimers();
+      pendingSheetCardId = null;
+      arApp.classList.remove("ar-app--sheet-open");
+    },
   });
+
+  setupLandscapeAndFullscreen(arApp);
 
   void bootstrap();
 
@@ -150,12 +158,16 @@ export function initArViewer(root: HTMLElement): void {
 
     const resize = (): void => {
       cssRenderer?.setSize(container.clientWidth, container.clientHeight);
+      updateLandscapeClass(arApp);
     };
     window.addEventListener("resize", resize);
 
     try {
       await mindarThree.start();
       root.querySelector(".ar-header")?.classList.add("ar-header--compact");
+      arApp.classList.add("ar-app--running");
+      updateLandscapeClass(arApp);
+      void requestAppFullscreen();
     } catch {
       statusEl.textContent = "Camera access denied or not supported.";
       startBtn.disabled = false;
@@ -172,10 +184,14 @@ export function initArViewer(root: HTMLElement): void {
     });
   }
 
-  function clearSheetTimer(): void {
+  function clearSheetTimers(): void {
     if (sheetTimer !== null) {
       clearTimeout(sheetTimer);
       sheetTimer = null;
+    }
+    if (loseTargetTimer !== null) {
+      clearTimeout(loseTargetTimer);
+      loseTargetTimer = null;
     }
   }
 
@@ -187,24 +203,37 @@ export function initArViewer(root: HTMLElement): void {
         }
 
         if (!activeCard) {
-          clearSheetTimer();
-          pendingSheetCardId = null;
+          if (pendingSheetCardId && loseTargetTimer === null) {
+            loseTargetTimer = setTimeout(() => {
+              loseTargetTimer = null;
+              clearSheetTimers();
+              pendingSheetCardId = null;
+            }, 500);
+          }
           return;
         }
 
+        if (loseTargetTimer !== null) {
+          clearTimeout(loseTargetTimer);
+          loseTargetTimer = null;
+        }
+
         if (pendingSheetCardId !== activeCard.id) {
-          clearSheetTimer();
+          if (sheetTimer !== null) {
+            clearTimeout(sheetTimer);
+            sheetTimer = null;
+          }
           pendingSheetCardId = activeCard.id;
           sheetTimer = setTimeout(() => {
             sheetTimer = null;
-            if (pendingSheetCardId === activeCard.id) {
+            if (pendingSheetCardId === activeCard.id && !sheet.isOpen()) {
               sheet.show(activeCard);
             }
           }, SHEET_OPEN_DELAY_MS);
         }
       },
       resetSheetTimer(): void {
-        clearSheetTimer();
+        clearSheetTimers();
         pendingSheetCardId = null;
       },
     };
@@ -274,12 +303,11 @@ function updatePointing(
   }
 
   const nextActive = closest?.id ?? null;
-  const showMarkers = nextActive === null && !sheetOpen;
 
   for (const overlay of overlays) {
     const isActive = overlay.card.id === nextActive;
-    overlay.markerObject.visible = showMarkers;
-    overlay.marker.classList.toggle("ar-card__marker--active", isActive);
+    overlay.markerObject.visible = !sheetOpen;
+    overlay.marker.classList.toggle("ar-card__marker--active", isActive && !sheetOpen);
     overlay.panel.classList.toggle("ar-card__panel--visible", isActive && !sheetOpen);
   }
 
@@ -314,7 +342,7 @@ function createCardDetailSheet(
   backdrop: HTMLElement,
   sheet: HTMLElement,
   content: HTMLElement,
-  onDismiss: () => void
+  callbacks: { onOpen: () => void; onDismiss: () => void }
 ): CardDetailSheet {
   const handle = sheet.querySelector(".ar-sheet__handle") as HTMLElement;
   let open = false;
@@ -325,7 +353,11 @@ function createCardDetailSheet(
   let dragging = false;
   let dragPointerId: number | null = null;
 
-  const setSheetOffset = (offsetPx: number): void => {
+  const clearSheetTransform = (): void => {
+    sheet.style.removeProperty("transform");
+  };
+
+  const setSheetDragOffset = (offsetPx: number): void => {
     sheet.style.transform = `translateY(${offsetPx}px)`;
   };
 
@@ -334,18 +366,18 @@ function createCardDetailSheet(
     sheet.hidden = false;
     backdrop.setAttribute("aria-hidden", "false");
     sheet.setAttribute("aria-hidden", "false");
+    clearSheetTransform();
     requestAnimationFrame(() => {
       backdrop.classList.add("ar-sheet-backdrop--visible");
       sheet.classList.add("ar-sheet--visible");
       sheet.classList.remove("ar-sheet--dragging");
-      setSheetOffset(0);
     });
   };
 
   const hideSheet = (): void => {
     backdrop.classList.remove("ar-sheet-backdrop--visible");
     sheet.classList.remove("ar-sheet--visible", "ar-sheet--dragging");
-    setSheetOffset(0);
+    clearSheetTransform();
     backdrop.setAttribute("aria-hidden", "true");
     sheet.setAttribute("aria-hidden", "true");
     window.setTimeout(() => {
@@ -367,7 +399,7 @@ function createCardDetailSheet(
     } else if (fromHistory) {
       historyPushed = false;
     }
-    onDismiss();
+    callbacks.onDismiss();
   };
 
   backdrop.addEventListener("click", () => dismissInternal(false));
@@ -392,7 +424,7 @@ function createCardDetailSheet(
   const onPointerMove = (event: PointerEvent): void => {
     if (!dragging || dragPointerId !== event.pointerId) return;
     dragOffset = Math.max(0, event.clientY - dragStartY);
-    setSheetOffset(dragOffset);
+    setSheetDragOffset(dragOffset);
   };
 
   const onPointerUp = (event: PointerEvent): void => {
@@ -405,7 +437,7 @@ function createCardDetailSheet(
       return;
     }
     sheet.classList.remove("ar-sheet--dragging");
-    setSheetOffset(0);
+    clearSheetTransform();
   };
 
   handle.addEventListener("pointerdown", onPointerDown);
@@ -424,6 +456,7 @@ function createCardDetailSheet(
         history.pushState({ arSheet: true }, "");
         historyPushed = true;
       }
+      callbacks.onOpen();
       showSheet();
     },
     dismiss(): void {
@@ -451,4 +484,43 @@ function escapeHtml(value: string): string {
 
 function escapeAttr(value: string): string {
   return escapeHtml(value).replaceAll("'", "&#39;");
+}
+
+function updateLandscapeClass(app: HTMLElement): boolean {
+  const landscape = window.innerWidth > window.innerHeight;
+  app.classList.toggle("ar-app--landscape", landscape);
+  return landscape;
+}
+
+function setupLandscapeAndFullscreen(app: HTMLElement): void {
+  const sync = (): void => {
+    const landscape = updateLandscapeClass(app);
+    if (landscape) {
+      void requestAppFullscreen();
+    } else if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
+  };
+
+  window.addEventListener("resize", sync);
+  window.addEventListener("orientationchange", () => window.setTimeout(sync, 150));
+  sync();
+}
+
+async function requestAppFullscreen(): Promise<void> {
+  if (document.fullscreenElement) return;
+  const root = document.documentElement;
+  try {
+    if (root.requestFullscreen) {
+      await root.requestFullscreen();
+      return;
+    }
+    const webkitRequest = (root as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> })
+      .webkitRequestFullscreen;
+    if (webkitRequest) {
+      await webkitRequest.call(root);
+    }
+  } catch {
+    // Fullscreen may require a fresh user gesture or is unsupported (e.g. iOS Safari).
+  }
 }
