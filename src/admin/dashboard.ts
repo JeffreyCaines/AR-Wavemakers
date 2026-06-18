@@ -4,14 +4,16 @@ import {
   createCard,
   deleteCard,
   fetchAllCards,
+  fetchCalibration,
   geocodeAddress,
   getAdminToken,
   setAdminToken,
   updateCard,
   verifyAdminPassword,
 } from "../shared/api";
-import { latLngToMapXY } from "../shared/geo";
-import type { InfoCard } from "../shared/types";
+import { buildProjection, describeProjection, projectLatLng, type Projection } from "../shared/geo";
+import type { CalibrationPoint, InfoCard } from "../shared/types";
+import { createCalibrationPanel } from "./calibrationPanel";
 import { createMapEditor } from "./mapEditor";
 
 type FormState = Omit<InfoCard, "id">;
@@ -63,9 +65,16 @@ function renderLogin(root: HTMLElement): void {
     submitBtn.disabled = true;
 
     try {
-      const ok = await verifyAdminPassword(password);
+      const { ok, status } = await verifyAdminPassword(password);
       if (!ok) {
-        errorEl.textContent = "Invalid password.";
+        if (status === 401) {
+          errorEl.textContent = "Invalid password.";
+        } else if (status === 404) {
+          errorEl.textContent =
+            "API not found (404). Check that Netlify Functions deployed and /api/cards/all is reachable.";
+        } else {
+          errorEl.textContent = `Sign-in failed (HTTP ${status}). Check Netlify function logs.`;
+        }
         errorEl.hidden = false;
         return;
       }
@@ -122,8 +131,9 @@ function renderDashboard(root: HTMLElement): void {
             </div>
             <p id="form-error" class="admin-error" hidden></p>
           </form>
+          <div id="calibration-host"></div>
           <div id="map-editor-host" class="admin-map-host"></div>
-          <p class="admin-muted">Drag the selected (green) pin to fine-tune its placement on the map.</p>
+          <p id="geocode-hint" class="admin-muted">Drag the selected (green) pin to fine-tune placement on the map.</p>
         </section>
       </div>
     </div>
@@ -139,20 +149,46 @@ function renderDashboard(root: HTMLElement): void {
 
 async function setupDashboard(root: HTMLElement): Promise<void> {
   let cards: InfoCard[] = [];
+  let calibrationPoints: CalibrationPoint[] = [];
+  let projection: Projection = buildProjection([]);
   let selectedId: string | null = null;
   let formState = emptyForm();
   let mapEditor: ReturnType<typeof createMapEditor> | null = null;
+  let calibrationPanel: ReturnType<typeof createCalibrationPanel> | null = null;
 
   const listEl = root.querySelector("#card-list") as HTMLUListElement;
   const form = root.querySelector("#card-form") as HTMLFormElement;
   const formTitle = root.querySelector("#form-title") as HTMLElement;
   const formError = root.querySelector("#form-error") as HTMLElement;
   const geocodeResult = root.querySelector("#geocode-result") as HTMLElement;
+  const geocodeHint = root.querySelector("#geocode-hint") as HTMLElement;
+  const calibrationHost = root.querySelector("#calibration-host") as HTMLElement;
   const mapHost = root.querySelector("#map-editor-host") as HTMLElement;
   const deleteBtn = root.querySelector("#delete-btn") as HTMLButtonElement;
 
+  const applyCalibration = (points: CalibrationPoint[]): void => {
+    calibrationPoints = points;
+    projection = buildProjection(points);
+    geocodeHint.textContent =
+      points.length >= 2
+        ? `${describeProjection(points)} Drag the green pin to fine-tune if needed.`
+        : "Add at least 2 calibration points above for accurate geocoding. Until then, placement is approximate — drag the pin manually.";
+  };
+
+  const mountCalibrationPanel = (): void => {
+    calibrationPanel?.destroy();
+    calibrationPanel = createCalibrationPanel(calibrationHost, calibrationPoints, {
+      onChange(points) {
+        applyCalibration(points);
+      },
+    });
+  };
+
   const load = async (): Promise<void> => {
-    cards = await fetchAllCards();
+    const [loadedCards, loadedCalibration] = await Promise.all([fetchAllCards(), fetchCalibration()]);
+    cards = loadedCards;
+    applyCalibration(loadedCalibration);
+    mountCalibrationPanel();
     if (!selectedId && cards.length > 0) {
       selectCard(cards[0].id);
       return;
@@ -203,7 +239,7 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     mapEditor = createMapEditor(
       mapHost,
       {
-        cards,
+        pins: cards.map((c) => ({ id: c.id, label: c.title, mapX: c.mapX, mapY: c.mapY })),
         selectedId,
         draftPosition: selectedId ? undefined : { mapX: formState.mapX, mapY: formState.mapY },
       },
@@ -240,12 +276,15 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
       formState.address = result.displayName;
       formState.lat = result.lat;
       formState.lng = result.lng;
-      const { mapX, mapY } = latLngToMapXY(result.lat, result.lng);
+      const { mapX, mapY } = projectLatLng(projection, result.lat, result.lng);
       formState.mapX = mapX;
       formState.mapY = mapY;
       fillForm(form, formState);
       mapEditor?.setSelectedPin(mapX, mapY);
       geocodeResult.textContent = result.displayName;
+      if (calibrationPoints.length < 2) {
+        geocodeResult.textContent += " (approximate — add calibration points for accuracy)";
+      }
     } catch (error) {
       geocodeResult.textContent = error instanceof Error ? error.message : "Geocoding failed.";
     }

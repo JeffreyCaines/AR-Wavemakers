@@ -1,14 +1,22 @@
-import type { InfoCard } from "../shared/types";
 import { MAP_REFERENCE_PATH } from "../shared/types";
+
+export interface PinDatum {
+  id: string;
+  label: string;
+  mapX: number;
+  mapY: number;
+}
 
 export interface MapEditorCallbacks {
   onPinMove: (mapX: number, mapY: number) => void;
 }
 
 export interface MapEditorOptions {
-  cards: InfoCard[];
+  pins: PinDatum[];
   selectedId: string | null;
   draftPosition?: { mapX: number; mapY: number };
+  /** Extra CSS class on each pin (e.g. calibration vs card pins). */
+  pinClass?: string;
 }
 
 export function createMapEditor(
@@ -16,7 +24,7 @@ export function createMapEditor(
   options: MapEditorOptions,
   callbacks: MapEditorCallbacks
 ): { setSelectedPin: (mapX: number, mapY: number) => void; destroy: () => void } {
-  const { cards, selectedId, draftPosition } = options;
+  const { pins, selectedId, draftPosition, pinClass } = options;
 
   container.innerHTML = `
     <div class="map-editor">
@@ -42,9 +50,9 @@ export function createMapEditor(
     pinsLayer.innerHTML = "";
     selectedPin = null;
 
-    for (const card of cards) {
-      const pin = createPin(card.id, card.title, card.id === selectedId);
-      positionPin(pin, card.mapX, card.mapY);
+    for (const pinDatum of pins) {
+      const pin = createPin(pinDatum.id, pinDatum.label, pinDatum.id === selectedId);
+      positionPin(pin, pinDatum.mapX, pinDatum.mapY);
       pinsLayer.appendChild(pin);
     }
 
@@ -58,7 +66,7 @@ export function createMapEditor(
   function createPin(id: string, title: string, selected: boolean): HTMLButtonElement {
     const pin = document.createElement("button");
     pin.type = "button";
-    pin.className = "map-editor__pin";
+    pin.className = pinClass ? `map-editor__pin ${pinClass}` : "map-editor__pin";
     pin.title = title;
     pin.dataset.id = id;
     if (selected) {

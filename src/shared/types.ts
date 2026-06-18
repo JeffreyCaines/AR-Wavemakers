@@ -21,6 +21,20 @@ export interface GeocodeResult {
   displayName: string;
 }
 
+/**
+ * A known place pinned at its true position on the (artistic) reference map.
+ * Used to fit a projection from real lat/lng to normalized map coords, since a
+ * stylized map does not match a textbook equirectangular world projection.
+ */
+export interface CalibrationPoint {
+  id: string;
+  label: string;
+  lat: number;
+  lng: number;
+  mapX: number;
+  mapY: number;
+}
+
 export const MAP_REFERENCE_PATH = "/map-reference.jpg";
 export const MAP_TARGET_PATH = "/map-target.mind";
 export const DEFAULT_MAP_ASPECT_RATIO = 1.5;

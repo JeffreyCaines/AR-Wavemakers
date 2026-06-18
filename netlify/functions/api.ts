@@ -1,10 +1,12 @@
 import type { Config, Context } from "@netlify/functions";
-import type { InfoCard } from "../../src/shared/types";
+import type { CalibrationPoint, InfoCard } from "../../src/shared/types";
 import {
   isAuthorized,
   jsonResponse,
+  loadCalibration,
   loadCards,
   newId,
+  saveCalibration,
   saveCards,
   unauthorized,
 } from "./_shared/storage";
@@ -146,6 +148,48 @@ async function handleGeocode(req: Request, url: URL): Promise<Response> {
   return jsonResponse(result);
 }
 
+async function handleCalibration(req: Request): Promise<Response> {
+  if (!isAuthorized(req.headers)) return unauthorized();
+
+  if (req.method === "GET") {
+    return jsonResponse(await loadCalibration());
+  }
+
+  if (req.method === "PUT") {
+    const body = await readJson(req);
+    if (!Array.isArray(body)) {
+      return jsonResponse({ error: "Expected an array of calibration points" }, 400);
+    }
+    const points = sanitizeCalibration(body);
+    await saveCalibration(points);
+    return jsonResponse(points);
+  }
+
+  return jsonResponse({ error: "Method not allowed" }, 405);
+}
+
+function sanitizeCalibration(input: unknown[]): CalibrationPoint[] {
+  const points: CalibrationPoint[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== "object") continue;
+    const p = raw as Record<string, unknown>;
+    const lat = Number(p.lat);
+    const lng = Number(p.lng);
+    const mapX = Number(p.mapX);
+    const mapY = Number(p.mapY);
+    if (![lat, lng, mapX, mapY].every(Number.isFinite)) continue;
+    points.push({
+      id: typeof p.id === "string" && p.id ? p.id : newId(),
+      label: typeof p.label === "string" ? p.label : "",
+      lat,
+      lng,
+      mapX,
+      mapY,
+    });
+  }
+  return points;
+}
+
 async function readJson(req: Request): Promise<unknown> {
   try {
     return await req.json();
@@ -160,6 +204,10 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 
   if (path.endsWith("/geocode")) {
     return handleGeocode(req, url);
+  }
+
+  if (path.endsWith("/calibration")) {
+    return handleCalibration(req);
   }
 
   if (path.includes("/cards")) {

@@ -102,8 +102,20 @@ interface InfoCard {
 }
 ```
 
-Address flow: geocode → equirectangular lat/lng → initial `(mapX, mapY)` → **drag the
-pin** to fine-tune (the artwork is stylized and won't align perfectly to geography) → save.
+Address flow: geocode → **calibrated** `(mapX, mapY)` when calibration is set → **drag the
+pin** to fine-tune → save.
+
+### Map calibration (required for accurate geocoding)
+
+The wall map is artistic and does **not** match a textbook equirectangular projection.
+Raw lat/lng math will place cities in the wrong ocean. In `/admin`, use **Map calibration**:
+
+1. Add at least **two** well-separated cities you can identify on the map (e.g. Tokyo + London).
+2. Each point is geocoded, then you **drag the orange pin** to its true spot on the reference image.
+3. Click **Save calibration** (stored in Netlify Blobs as `calibration.json`).
+4. Future card geocoding uses the fitted projection (2 points = linear, 3+ = affine).
+
+Until calibration is saved, geocoded pins are approximate — always drag to fine-tune.
 
 ## API
 
@@ -115,6 +127,8 @@ pin** to fine-tune (the artwork is stylized and won't align perfectly to geograp
 | `PUT /api/cards/:id` | bearer | Update |
 | `DELETE /api/cards/:id` | bearer | Delete |
 | `GET /api/geocode?q=…` | bearer | Nominatim proxy |
+| `GET /api/calibration` | bearer | Map calibration points |
+| `PUT /api/calibration` | bearer | Save calibration points |
 
 Auth header: `Authorization: Bearer <ADMIN_PASSWORD>`.
 

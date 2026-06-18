@@ -1,4 +1,4 @@
-import type { GeocodeResult, InfoCard } from "./types";
+import type { CalibrationPoint, GeocodeResult, InfoCard } from "./types";
 
 const TOKEN_KEY = "ar_admin_token";
 
@@ -66,6 +66,20 @@ export async function deleteCard(id: string): Promise<void> {
   }
 }
 
+export async function fetchCalibration(): Promise<CalibrationPoint[]> {
+  const response = await fetch("/api/calibration", { headers: authHeaders() });
+  return parseJson<CalibrationPoint[]>(response);
+}
+
+export async function saveCalibration(points: CalibrationPoint[]): Promise<CalibrationPoint[]> {
+  const response = await fetch("/api/calibration", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(points),
+  });
+  return parseJson<CalibrationPoint[]>(response);
+}
+
 export async function geocodeAddress(query: string): Promise<GeocodeResult> {
   const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`, {
     headers: authHeaders(),
@@ -73,9 +87,9 @@ export async function geocodeAddress(query: string): Promise<GeocodeResult> {
   return parseJson<GeocodeResult>(response);
 }
 
-export async function verifyAdminPassword(password: string): Promise<boolean> {
+export async function verifyAdminPassword(password: string): Promise<{ ok: boolean; status: number }> {
   const response = await fetch("/api/cards/all", {
     headers: { Authorization: `Bearer ${password}` },
   });
-  return response.ok;
+  return { ok: response.ok, status: response.status };
 }

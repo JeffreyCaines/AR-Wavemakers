@@ -250,6 +250,106 @@
   cursor: grabbing;
 }
 
+.map-editor__pin--calibration {
+  background: #ea580c;
+}
+
+.map-editor__pin--calibration.map-editor__pin--selected {
+  background: #c2410c;
+}
+
+.calibration {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.calibration h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.calibration__head {
+  margin-bottom: 0.5rem;
+}
+
+.calibration__help {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.calibration__add {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.calibration__add input {
+  flex: 1;
+  min-width: 160px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+}
+
+.calibration__list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.calibration__item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.calibration__item--active .calibration__select {
+  border-color: #ea580c;
+  background: #fff7ed;
+}
+
+.calibration__select {
+  flex: 1;
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.calibration__select strong {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.calibration__select span {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.calibration__delete {
+  padding: 0.35rem 0.55rem;
+  line-height: 1;
+  font-size: 1.1rem;
+}
+
+.calibration__actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
 @media (max-width: 900px) {
   .admin-layout {
     grid-template-columns: 1fr;

@@ -1,8 +1,9 @@
-import type { InfoCard } from "../../../src/shared/types";
+import type { CalibrationPoint, InfoCard } from "../../../src/shared/types";
 import { SEED_CARDS } from "../../../src/shared/types";
 
 const STORE_NAME = "ar-map-cards";
 const BLOB_KEY = "cards.json";
+const CALIBRATION_KEY = "calibration.json";
 
 export async function loadCards(): Promise<InfoCard[]> {
   try {
@@ -61,6 +62,51 @@ async function saveLocalCards(cards: InfoCard[]): Promise<void> {
   const filePath = path.join(process.cwd(), "data", "cards.json");
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, JSON.stringify(cards, null, 2), "utf-8");
+}
+
+export async function loadCalibration(): Promise<CalibrationPoint[]> {
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    const data = await store.get(CALIBRATION_KEY, { type: "json" });
+    if (Array.isArray(data)) return data as CalibrationPoint[];
+    return [];
+  } catch {
+    // Blobs unavailable (e.g. plain `vite dev`); fall back to a local file.
+  }
+  return loadLocalJson<CalibrationPoint[]>("calibration.json", []);
+}
+
+export async function saveCalibration(points: CalibrationPoint[]): Promise<void> {
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    await store.setJSON(CALIBRATION_KEY, points);
+    return;
+  } catch {
+    // Fall through to local file storage during dev.
+  }
+  await saveLocalJson("calibration.json", points);
+}
+
+async function loadLocalJson<T>(fileName: string, fallback: T): Promise<T> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const filePath = path.join(process.cwd(), "data", fileName);
+  try {
+    const raw = await fs.readFile(filePath, "utf-8");
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+async function saveLocalJson(fileName: string, value: unknown): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const filePath = path.join(process.cwd(), "data", fileName);
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf-8");
 }
 
 export function isAuthorized(headers: Headers): boolean {
