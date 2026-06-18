@@ -12,6 +12,7 @@ import type { InfoCard } from "../shared/types";
 const POINT_THRESHOLD = 0.12;
 const SHEET_OPEN_DELAY_MS = 1500;
 const SHEET_SWIPE_DISMISS_PX = 72;
+const SHEET_DRAG_START_PX = 8;
 
 interface CardOverlay {
   card: InfoCard;
@@ -60,21 +61,26 @@ export function initArViewer(root: HTMLElement): void {
   let loseTargetTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingSheetCardId: string | null = null;
   let activeCardTracker: ActiveCardTracker | null = null;
+  let arSessionActive = false;
   const arApp = root.querySelector(".ar-app") as HTMLElement;
 
   const sheetBackdrop = root.querySelector("#ar-sheet-backdrop") as HTMLElement;
   const sheetEl = root.querySelector("#ar-sheet") as HTMLElement;
   const sheetContent = root.querySelector("#ar-sheet-content") as HTMLElement;
   const detailSheet = createCardDetailSheet(sheetBackdrop, sheetEl, sheetContent, {
-    onOpen: () => arApp.classList.add("ar-app--sheet-open"),
+    onOpen: () => {
+      arApp.classList.add("ar-app--sheet-open");
+      document.documentElement.classList.add("ar-sheet-open");
+    },
     onDismiss: () => {
       clearSheetTimers();
       pendingSheetCardId = null;
       arApp.classList.remove("ar-app--sheet-open");
+      document.documentElement.classList.remove("ar-sheet-open");
     },
   });
 
-  setupLandscapeAndFullscreen(arApp);
+  setupLandscapeAndFullscreen(arApp, () => arSessionActive);
 
   void bootstrap();
 
@@ -96,6 +102,7 @@ export function initArViewer(root: HTMLElement): void {
     }
 
     startBtn.addEventListener("click", () => {
+      void requestAppFullscreen();
       void startAr();
     });
   }
@@ -158,16 +165,16 @@ export function initArViewer(root: HTMLElement): void {
 
     const resize = (): void => {
       cssRenderer?.setSize(container.clientWidth, container.clientHeight);
-      updateLandscapeClass(arApp);
+      applyViewportHeight();
     };
     window.addEventListener("resize", resize);
 
     try {
       await mindarThree.start();
       root.querySelector(".ar-header")?.classList.add("ar-header--compact");
+      arSessionActive = true;
       arApp.classList.add("ar-app--running");
-      updateLandscapeClass(arApp);
-      void requestAppFullscreen();
+      syncLandscapeLayout(arApp, true);
     } catch {
       statusEl.textContent = "Camera access denied or not supported.";
       startBtn.disabled = false;
@@ -344,14 +351,13 @@ function createCardDetailSheet(
   content: HTMLElement,
   callbacks: { onOpen: () => void; onDismiss: () => void }
 ): CardDetailSheet {
-  const handle = sheet.querySelector(".ar-sheet__handle") as HTMLElement;
   let open = false;
   let cardId: string | null = null;
   let historyPushed = false;
   let dragStartY = 0;
   let dragOffset = 0;
-  let dragging = false;
   let dragPointerId: number | null = null;
+  let dragMode: "pending" | "sheet" | "scroll" = "pending";
 
   const clearSheetTransform = (): void => {
     sheet.style.removeProperty("transform");
@@ -359,6 +365,12 @@ function createCardDetailSheet(
 
   const setSheetDragOffset = (offsetPx: number): void => {
     sheet.style.transform = `translateY(${offsetPx}px)`;
+  };
+
+  const resetDrag = (): void => {
+    dragPointerId = null;
+    dragOffset = 0;
+    dragMode = "pending";
   };
 
   const showSheet = (): void => {
@@ -404,45 +416,61 @@ function createCardDetailSheet(
 
   backdrop.addEventListener("click", () => dismissInternal(false));
 
-  const canStartDrag = (target: EventTarget | null): boolean => {
-    if (target instanceof Element && target.closest(".ar-sheet__body")) {
-      return content.scrollTop <= 0;
-    }
-    return true;
-  };
-
   const onPointerDown = (event: PointerEvent): void => {
-    if (!open || !canStartDrag(event.target)) return;
-    dragging = true;
+    if (!open) return;
+    if (event.target instanceof Element && event.target.closest("a")) return;
+
     dragPointerId = event.pointerId;
     dragStartY = event.clientY;
     dragOffset = 0;
-    sheet.classList.add("ar-sheet--dragging");
-    sheet.setPointerCapture(event.pointerId);
+    dragMode = "pending";
   };
 
   const onPointerMove = (event: PointerEvent): void => {
-    if (!dragging || dragPointerId !== event.pointerId) return;
-    dragOffset = Math.max(0, event.clientY - dragStartY);
-    setSheetDragOffset(dragOffset);
+    if (!open || dragPointerId !== event.pointerId) return;
+
+    const dy = event.clientY - dragStartY;
+
+    if (dragMode === "pending") {
+      if (Math.abs(dy) < SHEET_DRAG_START_PX) return;
+      if (dy > 0 && content.scrollTop <= 0) {
+        dragMode = "sheet";
+        sheet.classList.add("ar-sheet--dragging");
+        sheet.setPointerCapture(event.pointerId);
+      } else {
+        dragMode = "scroll";
+        resetDrag();
+        return;
+      }
+    }
+
+    if (dragMode === "sheet") {
+      event.preventDefault();
+      dragOffset = Math.max(0, dy);
+      setSheetDragOffset(dragOffset);
+    }
   };
 
   const onPointerUp = (event: PointerEvent): void => {
-    if (!dragging || dragPointerId !== event.pointerId) return;
-    dragging = false;
-    dragPointerId = null;
-    sheet.releasePointerCapture(event.pointerId);
-    if (dragOffset >= SHEET_SWIPE_DISMISS_PX) {
-      dismissInternal(false);
-      return;
+    if (dragPointerId !== event.pointerId) return;
+
+    if (dragMode === "sheet") {
+      sheet.releasePointerCapture(event.pointerId);
+      if (dragOffset >= SHEET_SWIPE_DISMISS_PX) {
+        resetDrag();
+        sheet.classList.remove("ar-sheet--dragging");
+        dismissInternal(false);
+        return;
+      }
+      sheet.classList.remove("ar-sheet--dragging");
+      clearSheetTransform();
     }
-    sheet.classList.remove("ar-sheet--dragging");
-    clearSheetTransform();
+
+    resetDrag();
   };
 
-  handle.addEventListener("pointerdown", onPointerDown);
-  content.addEventListener("pointerdown", onPointerDown);
-  sheet.addEventListener("pointermove", onPointerMove);
+  sheet.addEventListener("pointerdown", onPointerDown);
+  sheet.addEventListener("pointermove", onPointerMove, { passive: false });
   sheet.addEventListener("pointerup", onPointerUp);
   sheet.addEventListener("pointercancel", onPointerUp);
 
@@ -486,41 +514,91 @@ function escapeAttr(value: string): string {
   return escapeHtml(value).replaceAll("'", "&#39;");
 }
 
+function isLandscapeOrientation(): boolean {
+  const orientationType = window.screen?.orientation?.type;
+  if (orientationType) {
+    return orientationType.startsWith("landscape");
+  }
+  return window.innerWidth > window.innerHeight;
+}
+
+function applyViewportHeight(): void {
+  const height = window.visualViewport?.height ?? window.innerHeight;
+  document.documentElement.style.setProperty("--app-height", `${height}px`);
+}
+
+function hideMobileBrowserChrome(): void {
+  window.scrollTo(0, 1);
+  requestAnimationFrame(() => window.scrollTo(0, 0));
+}
+
 function updateLandscapeClass(app: HTMLElement): boolean {
-  const landscape = window.innerWidth > window.innerHeight;
+  const landscape = isLandscapeOrientation();
   app.classList.toggle("ar-app--landscape", landscape);
   return landscape;
 }
 
-function setupLandscapeAndFullscreen(app: HTMLElement): void {
-  const sync = (): void => {
-    const landscape = updateLandscapeClass(app);
-    if (landscape) {
-      void requestAppFullscreen();
-    } else if (document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => undefined);
-    }
-  };
-
-  window.addEventListener("resize", sync);
-  window.addEventListener("orientationchange", () => window.setTimeout(sync, 150));
-  sync();
-}
-
-async function requestAppFullscreen(): Promise<void> {
-  if (document.fullscreenElement) return;
+async function requestAppFullscreen(): Promise<boolean> {
+  if (document.fullscreenElement) return true;
   const root = document.documentElement;
   try {
     if (root.requestFullscreen) {
       await root.requestFullscreen();
-      return;
+      return true;
     }
     const webkitRequest = (root as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> })
       .webkitRequestFullscreen;
     if (webkitRequest) {
       await webkitRequest.call(root);
+      return true;
     }
   } catch {
-    // Fullscreen may require a fresh user gesture or is unsupported (e.g. iOS Safari).
+    // Fullscreen may require a user gesture or is unsupported (e.g. iOS Safari).
   }
+  return Boolean(document.fullscreenElement);
+}
+
+async function ensureLandscapeFullscreen(): Promise<void> {
+  if (!isLandscapeOrientation()) return;
+
+  hideMobileBrowserChrome();
+
+  if (!document.fullscreenElement) {
+    await requestAppFullscreen();
+  }
+
+  applyViewportHeight();
+}
+
+function syncLandscapeLayout(app: HTMLElement, arActive: boolean): void {
+  const landscape = updateLandscapeClass(app);
+  applyViewportHeight();
+
+  if (landscape && arActive) {
+    void ensureLandscapeFullscreen();
+  } else if (!landscape && document.fullscreenElement) {
+    void document.exitFullscreen().catch(() => undefined);
+  }
+}
+
+function scheduleLandscapeSync(app: HTMLElement, getArActive: () => boolean): void {
+  const run = (): void => syncLandscapeLayout(app, getArActive());
+  run();
+  window.setTimeout(run, 100);
+  window.setTimeout(run, 300);
+  window.setTimeout(run, 600);
+}
+
+function setupLandscapeAndFullscreen(app: HTMLElement, getArActive: () => boolean): void {
+  const sync = (): void => syncLandscapeLayout(app, getArActive());
+
+  window.addEventListener("resize", sync);
+  window.addEventListener("orientationchange", () => scheduleLandscapeSync(app, getArActive));
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", sync);
+    window.visualViewport.addEventListener("scroll", sync);
+  }
+
+  sync();
 }
