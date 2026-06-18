@@ -13,7 +13,8 @@ const POINT_THRESHOLD = 0.12;
 
 interface CardOverlay {
   card: InfoCard;
-  object: CSS2DObject;
+  markerObject: CSS2DObject;
+  panelObject: CSS2DObject;
   marker: HTMLDivElement;
   panel: HTMLDivElement;
 }
@@ -110,7 +111,10 @@ export function initArViewer(root: HTMLElement): void {
     container.appendChild(cssRenderer.domElement);
 
     overlays = cards.map((card) => createCardOverlay(card, aspectRatio));
-    overlays.forEach(({ object }) => anchor.group.add(object));
+    overlays.forEach(({ markerObject, panelObject }) => {
+      anchor.group.add(markerObject);
+      anchor.group.add(panelObject);
+    });
 
     const resize = (): void => {
       cssRenderer?.setSize(container.clientWidth, container.clientHeight);
@@ -128,9 +132,8 @@ export function initArViewer(root: HTMLElement): void {
 
     renderer.setAnimationLoop(() => {
       updateTrackingUI(statusEl, tracking);
-      const activeId = updatePointing(overlays, camera);
+      updatePointing(overlays, camera);
       cssRenderer?.render(scene, camera);
-      updateOverlayStacking(overlays, activeId);
       renderer.render(scene, camera);
     });
   }
@@ -139,11 +142,15 @@ export function initArViewer(root: HTMLElement): void {
 function createCardOverlay(card: InfoCard, aspectRatio: number): CardOverlay {
   const pos = mapXYToAnchorPosition(card.mapX, card.mapY, aspectRatio);
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "ar-card";
+  const markerHost = document.createElement("div");
+  markerHost.className = "ar-card-marker-host";
 
   const marker = document.createElement("div");
   marker.className = "ar-card__marker";
+  markerHost.append(marker);
+
+  const panelHost = document.createElement("div");
+  panelHost.className = "ar-card-panel-host";
 
   const panel = document.createElement("div");
   panel.className = "ar-card__panel";
@@ -154,13 +161,17 @@ function createCardOverlay(card: InfoCard, aspectRatio: number): CardOverlay {
     <p>${escapeHtml(card.body)}</p>
     ${card.linkUrl ? `<a href="${escapeAttr(card.linkUrl)}" target="_blank" rel="noopener noreferrer">Learn more</a>` : ""}
   `;
+  panelHost.append(panel);
 
-  wrapper.append(marker, panel);
+  const markerObject = new CSS2DObject(markerHost);
+  markerObject.position.set(pos.x, pos.y, 0);
+  markerObject.renderOrder = 0;
 
-  const object = new CSS2DObject(wrapper);
-  object.position.set(pos.x, pos.y, 0);
+  const panelObject = new CSS2DObject(panelHost);
+  panelObject.position.set(pos.x, pos.y, 0);
+  panelObject.renderOrder = 1;
 
-  return { card, object, marker, panel };
+  return { card, markerObject, panelObject, marker, panel };
 }
 
 function updateTrackingUI(statusEl: HTMLElement, tracking: boolean): void {
@@ -174,13 +185,13 @@ function updateTrackingUI(statusEl: HTMLElement, tracking: boolean): void {
 }
 
 /** Project each card to screen space and expand the one nearest the crosshair. */
-function updatePointing(overlays: CardOverlay[], camera: THREE.Camera): string | null {
+function updatePointing(overlays: CardOverlay[], camera: THREE.Camera): void {
   const center = new THREE.Vector2(0, 0);
   const projected = new THREE.Vector3();
   let closest: { id: string; distance: number } | null = null;
 
   for (const overlay of overlays) {
-    overlay.object.getWorldPosition(projected);
+    overlay.markerObject.getWorldPosition(projected);
     projected.project(camera);
 
     // Skip anchors behind the camera.
@@ -193,28 +204,13 @@ function updatePointing(overlays: CardOverlay[], camera: THREE.Camera): string |
   }
 
   const nextActive = closest?.id ?? null;
+  const showMarkers = nextActive === null;
 
   for (const overlay of overlays) {
     const isActive = overlay.card.id === nextActive;
+    overlay.markerObject.visible = showMarkers;
     overlay.marker.classList.toggle("ar-card__marker--active", isActive);
     overlay.panel.classList.toggle("ar-card__panel--visible", isActive);
-  }
-
-  return nextActive;
-}
-
-/**
- * CSS2DRenderer assigns z-index from camera distance each frame, which can stack
- * other markers above the open info panel. Re-apply stacking after it renders.
- */
-function updateOverlayStacking(overlays: CardOverlay[], activeId: string | null): void {
-  for (const overlay of overlays) {
-    const wrapper = overlay.object.element as HTMLDivElement;
-    const isActive = overlay.card.id === activeId;
-    wrapper.classList.toggle("ar-card--active", isActive);
-    wrapper.style.zIndex = isActive ? "10000" : "1";
-    overlay.marker.style.zIndex = isActive ? "1" : "0";
-    overlay.panel.style.zIndex = isActive ? "2" : "0";
   }
 }
 

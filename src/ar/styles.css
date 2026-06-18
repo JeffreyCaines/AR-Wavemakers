@@ -150,19 +150,18 @@ body {
   padding-bottom: 0.5rem;
 }
 
-.ar-card {
-  position: relative;
+.ar-card-marker-host,
+.ar-card-panel-host {
   transform: translate(-50%, -50%);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
 }
 
-.ar-card--active {
-  z-index: 10000;
+.ar-card-panel-host {
+  pointer-events: none;
 }
 
 .ar-card__marker {
-  position: relative;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -179,7 +178,6 @@ body {
 
 .ar-card__panel {
   position: absolute;
-  z-index: 2;
   left: 50%;
   bottom: calc(100% + 10px);
   transform: translateX(-50%) scale(0.92);
