@@ -128,8 +128,9 @@ export function initArViewer(root: HTMLElement): void {
 
     renderer.setAnimationLoop(() => {
       updateTrackingUI(statusEl, tracking);
-      updatePointing(overlays, camera);
+      const activeId = updatePointing(overlays, camera);
       cssRenderer?.render(scene, camera);
+      updateOverlayStacking(overlays, activeId);
       renderer.render(scene, camera);
     });
   }
@@ -173,7 +174,7 @@ function updateTrackingUI(statusEl: HTMLElement, tracking: boolean): void {
 }
 
 /** Project each card to screen space and expand the one nearest the crosshair. */
-function updatePointing(overlays: CardOverlay[], camera: THREE.Camera): void {
+function updatePointing(overlays: CardOverlay[], camera: THREE.Camera): string | null {
   const center = new THREE.Vector2(0, 0);
   const projected = new THREE.Vector3();
   let closest: { id: string; distance: number } | null = null;
@@ -197,6 +198,23 @@ function updatePointing(overlays: CardOverlay[], camera: THREE.Camera): void {
     const isActive = overlay.card.id === nextActive;
     overlay.marker.classList.toggle("ar-card__marker--active", isActive);
     overlay.panel.classList.toggle("ar-card__panel--visible", isActive);
+  }
+
+  return nextActive;
+}
+
+/**
+ * CSS2DRenderer assigns z-index from camera distance each frame, which can stack
+ * other markers above the open info panel. Re-apply stacking after it renders.
+ */
+function updateOverlayStacking(overlays: CardOverlay[], activeId: string | null): void {
+  for (const overlay of overlays) {
+    const wrapper = overlay.object.element as HTMLDivElement;
+    const isActive = overlay.card.id === activeId;
+    wrapper.classList.toggle("ar-card--active", isActive);
+    wrapper.style.zIndex = isActive ? "10000" : "1";
+    overlay.marker.style.zIndex = isActive ? "1" : "0";
+    overlay.panel.style.zIndex = isActive ? "2" : "0";
   }
 }
 
