@@ -22,6 +22,7 @@ declare module "mind-ar/dist/mindar-image-three.prod.js" {
     addAnchor(index: number): MindARAnchor;
     start(): Promise<void>;
     stop(): void;
+    resize(): void;
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;

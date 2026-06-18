@@ -80,9 +80,43 @@ export function initArViewer(root: HTMLElement): void {
     },
   });
 
-  setupLandscapeAndFullscreen(arApp, () => arSessionActive);
+  setupLandscapeAndFullscreen(arApp, () => arSessionActive, handleOrientationTransition);
 
   void bootstrap();
+
+  function resetTargetingState(): void {
+    tracking = false;
+    clearSheetTimers();
+    pendingSheetCardId = null;
+    activeCardTracker?.resetSheetTimer();
+
+    const sheetOpen = detailSheet.isOpen();
+    for (const overlay of overlays) {
+      overlay.markerObject.visible = !sheetOpen;
+      overlay.marker.classList.remove("ar-card__marker--active");
+      overlay.panel.classList.remove("ar-card__panel--visible");
+    }
+    updateTrackingUI(statusEl, false);
+  }
+
+  function resetArViewport(): void {
+    if (!mindarThree || !cssRenderer) return;
+    mindarThree.resize();
+    cssRenderer.setSize(container.clientWidth, container.clientHeight);
+  }
+
+  function handleOrientationTransition(): void {
+    if (!arSessionActive) return;
+    resetTargetingState();
+    const syncViewport = (): void => {
+      resetArViewport();
+      applyViewportHeight();
+    };
+    syncViewport();
+    window.setTimeout(syncViewport, 100);
+    window.setTimeout(syncViewport, 300);
+    window.setTimeout(syncViewport, 600);
+  }
 
   async function bootstrap(): Promise<void> {
     try {
@@ -164,6 +198,9 @@ export function initArViewer(root: HTMLElement): void {
     window.addEventListener("popstate", onPopState);
 
     const resize = (): void => {
+      if (mindarThree) {
+        mindarThree.resize();
+      }
       cssRenderer?.setSize(container.clientWidth, container.clientHeight);
       applyViewportHeight();
     };
@@ -589,11 +626,18 @@ function scheduleLandscapeSync(app: HTMLElement, getArActive: () => boolean): vo
   window.setTimeout(run, 600);
 }
 
-function setupLandscapeAndFullscreen(app: HTMLElement, getArActive: () => boolean): void {
+function setupLandscapeAndFullscreen(
+  app: HTMLElement,
+  getArActive: () => boolean,
+  onOrientationTransition?: () => void
+): void {
   const sync = (): void => syncLandscapeLayout(app, getArActive());
 
   window.addEventListener("resize", sync);
-  window.addEventListener("orientationchange", () => scheduleLandscapeSync(app, getArActive));
+  window.addEventListener("orientationchange", () => {
+    scheduleLandscapeSync(app, getArActive);
+    onOrientationTransition?.();
+  });
 
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", sync);
