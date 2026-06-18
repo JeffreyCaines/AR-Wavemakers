@@ -197,6 +197,14 @@ body {
   pointer-events: auto;
 }
 
+.ar-card__image {
+  display: block;
+  width: 100%;
+  margin-top: 0.45rem;
+  border-radius: 8px;
+}
+
+.ar-card__title,
 .ar-card__panel strong {
   display: block;
   font-size: 0.95rem;
@@ -209,12 +217,21 @@ body {
   color: #93c5fd;
 }
 
+.ar-card__address {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+.ar-card__body,
 .ar-card__panel p {
   margin: 0.45rem 0 0;
   font-size: 0.78rem;
   line-height: 1.35;
 }
 
+.ar-card__link,
 .ar-card__panel a {
   display: inline-block;
   margin-top: 0.45rem;
@@ -222,9 +239,94 @@ body {
   font-size: 0.78rem;
 }
 
-.ar-card__image {
-  display: block;
-  width: 100%;
-  margin-top: 0.45rem;
-  border-radius: 8px;
+.ar-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.28s ease;
+  pointer-events: none;
+}
+
+.ar-sheet-backdrop--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ar-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 201;
+  height: 60vh;
+  max-height: 60vh;
+  transform: translateY(100%);
+  transition: transform 0.28s ease;
+  background: #0c1a30;
+  color: #f4f7fb;
+  border-radius: 16px 16px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: none;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+  touch-action: pan-y;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.ar-sheet--visible {
+  transform: translateY(0);
+}
+
+.ar-sheet--dragging {
+  transition: none;
+}
+
+.ar-sheet__handle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1rem 0.35rem;
+  cursor: grab;
+  touch-action: none;
+}
+
+.ar-sheet__handle:active {
+  cursor: grabbing;
+}
+
+.ar-sheet__grabber {
+  width: 40px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.ar-sheet__body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding:
+    0.5rem
+    calc(env(safe-area-inset-right, 0px) + 1rem)
+    1rem
+    calc(env(safe-area-inset-left, 0px) + 1rem);
+  -webkit-overflow-scrolling: touch;
+}
+
+.ar-sheet__body .ar-card__title {
+  font-size: 1.1rem;
+}
+
+.ar-sheet__body .ar-card__body {
+  font-size: 0.9rem;
+}
+
+.ar-sheet__body .ar-card__image {
+  margin-top: 0.65rem;
 }

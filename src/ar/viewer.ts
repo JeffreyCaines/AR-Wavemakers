@@ -10,6 +10,8 @@ import type { InfoCard } from "../shared/types";
 // How close (in normalized device coordinates) the screen-center crosshair must
 // be to a card anchor for that card to expand. ~8% of the map width.
 const POINT_THRESHOLD = 0.12;
+const SHEET_OPEN_DELAY_MS = 1500;
+const SHEET_SWIPE_DISMISS_PX = 72;
 
 interface CardOverlay {
   card: InfoCard;
@@ -33,6 +35,13 @@ export function initArViewer(root: HTMLElement): void {
         <div class="ar-crosshair" aria-hidden="true"></div>
         <div id="ar-hint" class="ar-hint">Aim the crosshair at a location on the map to reveal impact stories.</div>
       </div>
+      <div id="ar-sheet-backdrop" class="ar-sheet-backdrop" hidden aria-hidden="true"></div>
+      <aside id="ar-sheet" class="ar-sheet" hidden aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="ar-sheet__handle" aria-hidden="true">
+          <span class="ar-sheet__grabber"></span>
+        </div>
+        <div id="ar-sheet-content" class="ar-sheet__body"></div>
+      </aside>
     </div>
   `;
 
@@ -45,6 +54,17 @@ export function initArViewer(root: HTMLElement): void {
   let overlays: CardOverlay[] = [];
   let aspectRatio = DEFAULT_MAP_ASPECT_RATIO;
   let tracking = false;
+  let sheetTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingSheetCardId: string | null = null;
+  let activeCardTracker: ActiveCardTracker | null = null;
+
+  const sheetBackdrop = root.querySelector("#ar-sheet-backdrop") as HTMLElement;
+  const sheetEl = root.querySelector("#ar-sheet") as HTMLElement;
+  const sheetContent = root.querySelector("#ar-sheet-content") as HTMLElement;
+  const detailSheet = createCardDetailSheet(sheetBackdrop, sheetEl, sheetContent, () => {
+    clearSheetTimer();
+    pendingSheetCardId = null;
+  });
 
   void bootstrap();
 
@@ -116,6 +136,16 @@ export function initArViewer(root: HTMLElement): void {
       anchor.group.add(panelObject);
     });
 
+    activeCardTracker = createActiveCardTracker(detailSheet);
+
+    const onPopState = (): void => {
+      if (detailSheet.isOpen()) {
+        detailSheet.dismissFromHistory();
+        activeCardTracker?.resetSheetTimer();
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+
     const resize = (): void => {
       cssRenderer?.setSize(container.clientWidth, container.clientHeight);
     };
@@ -127,15 +157,55 @@ export function initArViewer(root: HTMLElement): void {
     } catch {
       statusEl.textContent = "Camera access denied or not supported.";
       startBtn.disabled = false;
+      window.removeEventListener("popstate", onPopState);
       return;
     }
 
     renderer.setAnimationLoop(() => {
       updateTrackingUI(statusEl, tracking);
-      updatePointing(overlays, camera);
+      const activeCard = updatePointing(overlays, camera, detailSheet.isOpen());
+      activeCardTracker?.handleActiveCard(activeCard);
       cssRenderer?.render(scene, camera);
       renderer.render(scene, camera);
     });
+  }
+
+  function clearSheetTimer(): void {
+    if (sheetTimer !== null) {
+      clearTimeout(sheetTimer);
+      sheetTimer = null;
+    }
+  }
+
+  function createActiveCardTracker(sheet: CardDetailSheet): ActiveCardTracker {
+    return {
+      handleActiveCard(activeCard: InfoCard | null): void {
+        if (sheet.isOpen()) {
+          return;
+        }
+
+        if (!activeCard) {
+          clearSheetTimer();
+          pendingSheetCardId = null;
+          return;
+        }
+
+        if (pendingSheetCardId !== activeCard.id) {
+          clearSheetTimer();
+          pendingSheetCardId = activeCard.id;
+          sheetTimer = setTimeout(() => {
+            sheetTimer = null;
+            if (pendingSheetCardId === activeCard.id) {
+              sheet.show(activeCard);
+            }
+          }, SHEET_OPEN_DELAY_MS);
+        }
+      },
+      resetSheetTimer(): void {
+        clearSheetTimer();
+        pendingSheetCardId = null;
+      },
+    };
   }
 }
 
@@ -154,13 +224,7 @@ function createCardOverlay(card: InfoCard, aspectRatio: number): CardOverlay {
 
   const panel = document.createElement("div");
   panel.className = "ar-card__panel";
-  panel.innerHTML = `
-    <strong>${escapeHtml(card.title)}</strong>
-    ${card.companyName ? `<span class="ar-card__company">${escapeHtml(card.companyName)}</span>` : ""}
-    ${card.imageUrl ? `<img class="ar-card__image" src="${escapeAttr(card.imageUrl)}" alt="" />` : ""}
-    <p>${escapeHtml(card.body)}</p>
-    ${card.linkUrl ? `<a href="${escapeAttr(card.linkUrl)}" target="_blank" rel="noopener noreferrer">Learn more</a>` : ""}
-  `;
+  panel.innerHTML = buildCardContentHtml(card);
   panelHost.append(panel);
 
   const markerObject = new CSS2DObject(markerHost);
@@ -185,7 +249,11 @@ function updateTrackingUI(statusEl: HTMLElement, tracking: boolean): void {
 }
 
 /** Project each card to screen space and expand the one nearest the crosshair. */
-function updatePointing(overlays: CardOverlay[], camera: THREE.Camera): void {
+function updatePointing(
+  overlays: CardOverlay[],
+  camera: THREE.Camera,
+  sheetOpen: boolean
+): InfoCard | null {
   const center = new THREE.Vector2(0, 0);
   const projected = new THREE.Vector3();
   let closest: { id: string; distance: number } | null = null;
@@ -204,14 +272,171 @@ function updatePointing(overlays: CardOverlay[], camera: THREE.Camera): void {
   }
 
   const nextActive = closest?.id ?? null;
-  const showMarkers = nextActive === null;
+  const showMarkers = nextActive === null && !sheetOpen;
 
   for (const overlay of overlays) {
     const isActive = overlay.card.id === nextActive;
     overlay.markerObject.visible = showMarkers;
     overlay.marker.classList.toggle("ar-card__marker--active", isActive);
-    overlay.panel.classList.toggle("ar-card__panel--visible", isActive);
+    overlay.panel.classList.toggle("ar-card__panel--visible", isActive && !sheetOpen);
   }
+
+  return overlays.find((overlay) => overlay.card.id === nextActive)?.card ?? null;
+}
+
+interface ActiveCardTracker {
+  handleActiveCard: (activeCard: InfoCard | null) => void;
+  resetSheetTimer: () => void;
+}
+
+interface CardDetailSheet {
+  show: (card: InfoCard) => void;
+  dismiss: () => void;
+  dismissFromHistory: () => void;
+  isOpen: () => boolean;
+  getCardId: () => string | null;
+}
+
+function buildCardContentHtml(card: InfoCard): string {
+  return `
+    <strong class="ar-card__title">${escapeHtml(card.title)}</strong>
+    ${card.companyName ? `<span class="ar-card__company">${escapeHtml(card.companyName)}</span>` : ""}
+    ${card.address ? `<span class="ar-card__address">${escapeHtml(card.address)}</span>` : ""}
+    ${card.imageUrl ? `<img class="ar-card__image" src="${escapeAttr(card.imageUrl)}" alt="" />` : ""}
+    <p class="ar-card__body">${escapeHtml(card.body)}</p>
+    ${card.linkUrl ? `<a class="ar-card__link" href="${escapeAttr(card.linkUrl)}" target="_blank" rel="noopener noreferrer">Learn more</a>` : ""}
+  `;
+}
+
+function createCardDetailSheet(
+  backdrop: HTMLElement,
+  sheet: HTMLElement,
+  content: HTMLElement,
+  onDismiss: () => void
+): CardDetailSheet {
+  const handle = sheet.querySelector(".ar-sheet__handle") as HTMLElement;
+  let open = false;
+  let cardId: string | null = null;
+  let historyPushed = false;
+  let dragStartY = 0;
+  let dragOffset = 0;
+  let dragging = false;
+  let dragPointerId: number | null = null;
+
+  const setSheetOffset = (offsetPx: number): void => {
+    sheet.style.transform = `translateY(${offsetPx}px)`;
+  };
+
+  const showSheet = (): void => {
+    backdrop.hidden = false;
+    sheet.hidden = false;
+    backdrop.setAttribute("aria-hidden", "false");
+    sheet.setAttribute("aria-hidden", "false");
+    requestAnimationFrame(() => {
+      backdrop.classList.add("ar-sheet-backdrop--visible");
+      sheet.classList.add("ar-sheet--visible");
+      sheet.classList.remove("ar-sheet--dragging");
+      setSheetOffset(0);
+    });
+  };
+
+  const hideSheet = (): void => {
+    backdrop.classList.remove("ar-sheet-backdrop--visible");
+    sheet.classList.remove("ar-sheet--visible", "ar-sheet--dragging");
+    setSheetOffset(0);
+    backdrop.setAttribute("aria-hidden", "true");
+    sheet.setAttribute("aria-hidden", "true");
+    window.setTimeout(() => {
+      if (!open) {
+        backdrop.hidden = true;
+        sheet.hidden = true;
+      }
+    }, 300);
+  };
+
+  const dismissInternal = (fromHistory: boolean): void => {
+    if (!open) return;
+    open = false;
+    cardId = null;
+    hideSheet();
+    if (!fromHistory && historyPushed) {
+      historyPushed = false;
+      history.back();
+    } else if (fromHistory) {
+      historyPushed = false;
+    }
+    onDismiss();
+  };
+
+  backdrop.addEventListener("click", () => dismissInternal(false));
+
+  const canStartDrag = (target: EventTarget | null): boolean => {
+    if (target instanceof Element && target.closest(".ar-sheet__body")) {
+      return content.scrollTop <= 0;
+    }
+    return true;
+  };
+
+  const onPointerDown = (event: PointerEvent): void => {
+    if (!open || !canStartDrag(event.target)) return;
+    dragging = true;
+    dragPointerId = event.pointerId;
+    dragStartY = event.clientY;
+    dragOffset = 0;
+    sheet.classList.add("ar-sheet--dragging");
+    sheet.setPointerCapture(event.pointerId);
+  };
+
+  const onPointerMove = (event: PointerEvent): void => {
+    if (!dragging || dragPointerId !== event.pointerId) return;
+    dragOffset = Math.max(0, event.clientY - dragStartY);
+    setSheetOffset(dragOffset);
+  };
+
+  const onPointerUp = (event: PointerEvent): void => {
+    if (!dragging || dragPointerId !== event.pointerId) return;
+    dragging = false;
+    dragPointerId = null;
+    sheet.releasePointerCapture(event.pointerId);
+    if (dragOffset >= SHEET_SWIPE_DISMISS_PX) {
+      dismissInternal(false);
+      return;
+    }
+    sheet.classList.remove("ar-sheet--dragging");
+    setSheetOffset(0);
+  };
+
+  handle.addEventListener("pointerdown", onPointerDown);
+  content.addEventListener("pointerdown", onPointerDown);
+  sheet.addEventListener("pointermove", onPointerMove);
+  sheet.addEventListener("pointerup", onPointerUp);
+  sheet.addEventListener("pointercancel", onPointerUp);
+
+  return {
+    show(card: InfoCard): void {
+      if (open && cardId === card.id) return;
+      cardId = card.id;
+      open = true;
+      content.innerHTML = buildCardContentHtml(card);
+      if (!historyPushed) {
+        history.pushState({ arSheet: true }, "");
+        historyPushed = true;
+      }
+      showSheet();
+    },
+    dismiss(): void {
+      dismissInternal(false);
+    },
+    dismissFromHistory(): void {
+      dismissInternal(true);
+    },
+    isOpen(): boolean {
+      return open;
+    },
+    getCardId(): string | null {
+      return cardId;
+    },
+  };
 }
 
 function escapeHtml(value: string): string {
