@@ -26,14 +26,16 @@ export function initArViewer(root: HTMLElement): void {
     <div class="ar-app">
       <div id="ar-container" class="ar-container"></div>
       <div class="ar-ui">
-        <header class="ar-header">
-          <h1>NL World Map AR</h1>
-          <p class="ar-subtitle">Point your phone at the wall map</p>
-        </header>
-        <div id="ar-status" class="ar-status">Loading cards…</div>
+        <div class="ar-instructions">
+          <header class="ar-header">
+            <h1>NL World Map AR</h1>
+            <p class="ar-subtitle">Point your phone at the wall map</p>
+          </header>
+          <div id="ar-status" class="ar-status">Loading cards…</div>
+          <div id="ar-hint" class="ar-hint">Aim the crosshair at a location on the map to reveal impact stories.</div>
+        </div>
         <button id="ar-start" class="ar-btn" disabled>Start AR</button>
         <div class="ar-crosshair" aria-hidden="true"></div>
-        <div id="ar-hint" class="ar-hint">Aim the crosshair at a location on the map to reveal impact stories.</div>
       </div>
       <div id="ar-sheet-backdrop" class="ar-sheet-backdrop" hidden aria-hidden="true"></div>
       <aside id="ar-sheet" class="ar-sheet" hidden aria-hidden="true" role="dialog" aria-modal="true">
