@@ -89,6 +89,10 @@ export function initArViewer(root: HTMLElement): void {
       imageTargetSrc: MAP_TARGET_PATH,
       uiScanning: false,
       uiLoading: false,
+      filterMinCF: 0.0001,
+      filterBeta: 5000,
+      missTolerance: 5,
+      warmupTolerance: 5,
     });
 
     const { renderer, scene, camera } = mindarThree;
