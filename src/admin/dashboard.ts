@@ -95,20 +95,19 @@ function renderLogin(root: HTMLElement): void {
 function renderDashboard(root: HTMLElement): void {
   root.innerHTML = `
     <div class="admin">
-      <div class="admin-top">
-        <header class="admin-header">
-          <div>
-            <h1>Info Card Dashboard</h1>
-            <p>Place cards on the world map for the AR experience.</p>
-          </div>
-          <div class="admin-header__actions">
-            <a href="/share-story.html" class="admin-link">Share story form</a>
-            <a href="/" class="admin-link">Open AR Viewer</a>
-            <button type="button" id="logout-btn" class="admin-btn admin-btn--ghost">Sign out</button>
-          </div>
-        </header>
-        <div class="admin-header__wave" aria-hidden="true"></div>
-      </div>
+      <header class="admin-header">
+        <div>
+          <a href="https://technl.ca/">
+          <img src="/wp-content/uploads/2021/08/TechNL-Logo_Black.png" width="1080" height="424" alt="techNL" id="logo" data-height-percentage="54" data-actual-width="1080" data-actual-height="424">
+          </a>
+          <p>Place cards on the world map for the AR experience.</p>
+        </div>
+        <div class="admin-header__actions">
+          <a href="/share-story.html" class="admin-link">Share story form</a>
+          <a href="/" class="admin-link">Open AR Viewer</a>
+          <button type="button" id="logout-btn" class="admin-btn admin-btn--ghost">Sign out</button>
+        </div>
+      </header>
       <div class="admin-layout">
         <div class="admin-sidebar">
           <section class="admin-panel admin-panel--submissions">
