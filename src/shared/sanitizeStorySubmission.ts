@@ -24,24 +24,20 @@ function hasNonAscii(text: string): boolean {
   return /[^\x00-\x7F]/.test(text);
 }
 
-function collectLetterScripts(text: string): Set<string> {
-  const scripts = new Set<string>();
+function hasMixedLetterScripts(text: string): boolean {
+  let hasLatin = false;
+  let hasNonLatinLetter = false;
   for (const char of text) {
     if (!/\p{L}/u.test(char)) continue;
+    if (/\p{Script=Common}/u.test(char) || /\p{Script=Inherited}/u.test(char)) continue;
     if (/\p{Script=Latin}/u.test(char)) {
-      scripts.add("Latin");
-      continue;
+      hasLatin = true;
+    } else {
+      hasNonLatinLetter = true;
     }
-    const match = /\p{Script=(\w+)}/u.exec(char);
-    if (match && match[1] !== "Common" && match[1] !== "Inherited") {
-      scripts.add(match[1]);
-    }
+    if (hasLatin && hasNonLatinLetter) return true;
   }
-  return scripts;
-}
-
-function hasMixedLetterScripts(text: string): boolean {
-  return collectLetterScripts(text).size > 1;
+  return false;
 }
 
 /** True when a hostname label may be an IDN homograph. */
