@@ -10,6 +10,8 @@
     "build:full": "npm run compile-target && npm run build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "compile-target": "node scripts/compile-target.mjs",
     "netlify:dev": "netlify dev"
   },
@@ -24,7 +26,8 @@
     "@types/three": "0.160.0",
     "puppeteer": "^25.1.0",
     "typescript": "^5.7.2",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
   },
   "overrides": {
     "canvas": "npm:@napi-rs/canvas@^0.1.0"

@@ -14,6 +14,80 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const ZERO_WIDTH = /[\u200B-\u200D\uFEFF]/g;
 const HTML_TAGS = /<[^>]*>/g;
 
+/** Letters from scripts commonly used to impersonate Latin domain names. */
+const HOMOGRAPH_LETTER =
+  /[\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Hebrew}]/u;
+
+const ASCII_EMAIL = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
+
+function hasNonAscii(text: string): boolean {
+  return /[^\x00-\x7F]/.test(text);
+}
+
+function collectLetterScripts(text: string): Set<string> {
+  const scripts = new Set<string>();
+  for (const char of text) {
+    if (!/\p{L}/u.test(char)) continue;
+    if (/\p{Script=Latin}/u.test(char)) {
+      scripts.add("Latin");
+      continue;
+    }
+    const match = /\p{Script=(\w+)}/u.exec(char);
+    if (match && match[1] !== "Common" && match[1] !== "Inherited") {
+      scripts.add(match[1]);
+    }
+  }
+  return scripts;
+}
+
+function hasMixedLetterScripts(text: string): boolean {
+  return collectLetterScripts(text).size > 1;
+}
+
+/** True when a hostname label may be an IDN homograph. */
+function hostnameLabelHasHomographRisk(label: string): boolean {
+  if (!label) return false;
+  const lower = label.toLowerCase();
+  // Punycode-encoded IDN can still decode to brand lookalikes.
+  if (lower.startsWith("xn--")) return true;
+  if (HOMOGRAPH_LETTER.test(label)) return true;
+  if (hasNonAscii(label) && /\p{L}/u.test(label)) return true;
+  if (hasMixedLetterScripts(label)) return true;
+  return false;
+}
+
+function hostnameHasHomographRisk(hostname: string): boolean {
+  const host = hostname.replace(/^\[(.*)\]$/, "$1");
+  if (host.includes(":")) return false;
+  return host.split(".").some(hostnameLabelHasHomographRisk);
+}
+
+function emailHasHomographRisk(email: string): boolean {
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return true;
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  if (hasNonAscii(local) || HOMOGRAPH_LETTER.test(local) || hasMixedLetterScripts(local)) {
+    return true;
+  }
+  return hostnameHasHomographRisk(domain);
+}
+
+function extractHostFromRawUrl(raw: string): string | null {
+  const match = /^https?:\/\/([^/?#]+)/i.exec(raw);
+  if (!match?.[1]) return null;
+  const host = match[1].split("@").pop()?.split(":")[0];
+  return host ?? null;
+}
+
+function decodeHostForCheck(host: string): string {
+  try {
+    return decodeURIComponent(host);
+  } catch {
+    return host;
+  }
+}
+
 /** Strip markup, control characters, and normalize whitespace for single-line fields. */
 export function sanitizePlainText(value: unknown, maxLen: number): string {
   if (typeof value !== "string") return "";
@@ -34,7 +108,7 @@ export function sanitizeMultilineText(value: unknown, maxLen: number): string {
     .replace(CONTROL_CHARS, "")
     .replace(ZERO_WIDTH, "")
     .replace(HTML_TAGS, "")
-    
+
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
@@ -47,18 +121,24 @@ export function sanitizeMultilineText(value: unknown, maxLen: number): string {
 export function sanitizeEmail(value: unknown): string | undefined {
   const email = sanitizePlainText(value, LIMITS.contactEmail).toLowerCase();
   if (!email) return undefined;
-  if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return undefined;
+  if (!ASCII_EMAIL.test(email)) return undefined;
+  if (emailHasHomographRisk(email)) return undefined;
   return email;
 }
 
-/** Allow only http/https URLs without embedded credentials. */
+/** Allow only http/https URLs without embedded credentials or IDN homographs. */
 export function sanitizeHttpUrl(value: unknown, maxLen: number): string | undefined {
   const raw = sanitizePlainText(value, maxLen);
   if (!raw) return undefined;
+
+  const rawHost = extractHostFromRawUrl(raw);
+  if (rawHost && hostnameHasHomographRisk(decodeHostForCheck(rawHost))) return undefined;
+
   try {
     const url = new URL(raw);
     if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
     if (url.username || url.password) return undefined;
+    if (hostnameHasHomographRisk(url.hostname)) return undefined;
     return url.toString().slice(0, maxLen);
   } catch {
     return undefined;
@@ -89,7 +169,10 @@ export function sanitizeStorySubmissionInput(input: unknown): SanitizeStoryInput
   if (contactEmailRaw) {
     contactEmail = sanitizeEmail(contactEmailRaw);
     if (!contactEmail) {
-      return { ok: false, error: "Enter a valid contact email or leave it blank." };
+      return {
+        ok: false,
+        error: "Enter a valid ASCII email address or leave it blank.",
+      };
     }
   }
 
@@ -98,7 +181,10 @@ export function sanitizeStorySubmissionInput(input: unknown): SanitizeStoryInput
   if (imageUrlRaw) {
     imageUrl = sanitizeHttpUrl(imageUrlRaw, LIMITS.imageUrl);
     if (!imageUrl) {
-      return { ok: false, error: "Image URL must be a valid http or https link." };
+      return {
+        ok: false,
+        error: "Image URL must be a valid http or https link with an ASCII domain name.",
+      };
     }
   }
 
@@ -107,7 +193,10 @@ export function sanitizeStorySubmissionInput(input: unknown): SanitizeStoryInput
   if (linkUrlRaw) {
     linkUrl = sanitizeHttpUrl(linkUrlRaw, LIMITS.linkUrl);
     if (!linkUrl) {
-      return { ok: false, error: "Website URL must be a valid http or https link." };
+      return {
+        ok: false,
+        error: "Website URL must be a valid http or https link with an ASCII domain name.",
+      };
     }
   }
 
