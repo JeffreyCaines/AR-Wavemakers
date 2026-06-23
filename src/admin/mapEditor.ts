@@ -23,7 +23,11 @@ export function createMapEditor(
   container: HTMLElement,
   options: MapEditorOptions,
   callbacks: MapEditorCallbacks
-): { setSelectedPin: (mapX: number, mapY: number) => void; destroy: () => void } {
+): {
+  setSelectedPin: (mapX: number, mapY: number) => void;
+  getSelectedPinPosition: () => { mapX: number; mapY: number } | null;
+  destroy: () => void;
+} {
   const { pins, selectedId, draftPosition, pinClass } = options;
 
   container.innerHTML = `
@@ -122,6 +126,13 @@ export function createMapEditor(
   return {
     setSelectedPin(mapX: number, mapY: number): void {
       if (selectedPin) positionPin(selectedPin, mapX, mapY);
+    },
+    getSelectedPinPosition(): { mapX: number; mapY: number } | null {
+      if (!selectedPin) return null;
+      const mapX = parseFloat(selectedPin.style.left) / 100;
+      const mapY = parseFloat(selectedPin.style.top) / 100;
+      if (!Number.isFinite(mapX) || !Number.isFinite(mapY)) return null;
+      return { mapX, mapY };
     },
     destroy(): void {
       pinsLayer.removeEventListener("pointerdown", onPointerDown);

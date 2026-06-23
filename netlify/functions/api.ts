@@ -1,13 +1,16 @@
 import type { Config, Context } from "@netlify/functions";
-import type { CalibrationPoint, InfoCard } from "../../src/shared/types";
+import type { CalibrationPoint, InfoCard, StorySubmission } from "../../src/shared/types";
+import { sanitizeStorySubmissionInput } from "../../src/shared/sanitizeStorySubmission";
 import {
   isAuthorized,
   jsonResponse,
   loadCalibration,
   loadCards,
+  loadSubmissions,
   newId,
   saveCalibration,
   saveCards,
+  saveSubmissions,
   unauthorized,
 } from "./_shared/storage";
 
@@ -34,6 +37,11 @@ function getCardId(path: string): string | null {
   const match = path.match(/\/cards\/([^/]+)$/);
   if (!match || match[1] === "all") return null;
   return match[1];
+}
+
+function getSubmissionId(path: string): string | null {
+  const match = path.match(/\/submissions\/([^/]+)/);
+  return match?.[1] ?? null;
 }
 
 async function handleCards(req: Request, path: string): Promise<Response> {
@@ -190,6 +198,81 @@ function sanitizeCalibration(input: unknown[]): CalibrationPoint[] {
   return points;
 }
 
+async function handleSubmissions(req: Request, path: string): Promise<Response> {
+  const method = req.method;
+  const submissionId = getSubmissionId(path);
+  const isApproveRoute = Boolean(submissionId && path.endsWith(`/submissions/${submissionId}/approve`));
+
+  if (isApproveRoute) {
+    if (method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+    if (!isAuthorized(req.headers)) return unauthorized();
+
+    const submissions = await loadSubmissions();
+    const submission = submissions.find((s) => s.id === submissionId);
+    if (!submission) return jsonResponse({ error: "Not found" }, 404);
+
+    const cards = await loadCards();
+    const card: InfoCard = {
+      id: newId(),
+      title: submission.title,
+      body: submission.body,
+      companyName: submission.companyName || undefined,
+      address: submission.address,
+      lat: 0,
+      lng: 0,
+      mapX: 0.5,
+      mapY: 0.5,
+      imageUrl: submission.imageUrl || undefined,
+      linkUrl: submission.linkUrl || undefined,
+      active: false,
+    };
+    cards.push(card);
+    await saveCards(cards);
+    await saveSubmissions(submissions.filter((s) => s.id !== submissionId));
+
+    return jsonResponse(card, 201);
+  }
+
+  if (submissionId) {
+    if (method !== "DELETE") return jsonResponse({ error: "Method not allowed" }, 405);
+    if (!isAuthorized(req.headers)) return unauthorized();
+
+    const submissions = await loadSubmissions();
+    const next = submissions.filter((s) => s.id !== submissionId);
+    if (next.length === submissions.length) return jsonResponse({ error: "Not found" }, 404);
+    await saveSubmissions(next);
+    return jsonResponse({ ok: true });
+  }
+
+  if (path.endsWith("/submissions")) {
+    if (method === "GET") {
+      if (!isAuthorized(req.headers)) return unauthorized();
+      return jsonResponse(await loadSubmissions());
+    }
+
+    if (method === "POST") {
+      const body = await readJson(req);
+      const result = sanitizeStorySubmissionInput(body);
+      if (!result.ok) {
+        return jsonResponse({ error: result.error }, 400);
+      }
+
+      const submission: StorySubmission = {
+        id: newId(),
+        ...result.value,
+        submittedAt: new Date().toISOString(),
+      };
+
+      const submissions = await loadSubmissions();
+      submissions.unshift(submission);
+      await saveSubmissions(submissions);
+      return jsonResponse({ ok: true, id: submission.id }, 201);
+    }
+  }
+
+  return jsonResponse({ error: "Method not allowed" }, 405);
+}
+
 async function readJson(req: Request): Promise<unknown> {
   try {
     return await req.json();
@@ -208,6 +291,10 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 
   if (path.endsWith("/calibration")) {
     return handleCalibration(req);
+  }
+
+  if (path.includes("/submissions")) {
+    return handleSubmissions(req, path);
   }
 
   if (path.includes("/cards")) {

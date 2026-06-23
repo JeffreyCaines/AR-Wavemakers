@@ -1,9 +1,10 @@
-import type { CalibrationPoint, InfoCard } from "../../../src/shared/types";
+import type { CalibrationPoint, InfoCard, StorySubmission } from "../../../src/shared/types";
 import { SEED_CARDS } from "../../../src/shared/types";
 
 const STORE_NAME = "ar-map-cards";
 const BLOB_KEY = "cards.json";
 const CALIBRATION_KEY = "calibration.json";
+const SUBMISSIONS_KEY = "submissions.json";
 
 export async function loadCards(): Promise<InfoCard[]> {
   try {
@@ -107,6 +108,31 @@ async function saveLocalJson(fileName: string, value: unknown): Promise<void> {
   const filePath = path.join(process.cwd(), "data", fileName);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf-8");
+}
+
+export async function loadSubmissions(): Promise<StorySubmission[]> {
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    const data = await store.get(SUBMISSIONS_KEY, { type: "json" });
+    if (Array.isArray(data)) return data as StorySubmission[];
+    return [];
+  } catch {
+    // Blobs unavailable (e.g. plain `vite dev`); fall back to a local file.
+  }
+  return loadLocalJson<StorySubmission[]>("submissions.json", []);
+}
+
+export async function saveSubmissions(submissions: StorySubmission[]): Promise<void> {
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    await store.setJSON(SUBMISSIONS_KEY, submissions);
+    return;
+  } catch {
+    // Fall through to local file storage during dev.
+  }
+  await saveLocalJson("submissions.json", submissions);
 }
 
 export function isAuthorized(headers: Headers): boolean {

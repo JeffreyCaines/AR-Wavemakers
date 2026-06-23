@@ -21,6 +21,21 @@ export interface GeocodeResult {
   displayName: string;
 }
 
+/** Public story submission awaiting admin review before map placement. */
+export interface StorySubmission {
+  id: string;
+  title: string;
+  companyName: string;
+  body: string;
+  address: string;
+  contactEmail?: string;
+  imageUrl?: string;
+  linkUrl?: string;
+  submittedAt: string;
+}
+
+export type StorySubmissionInput = Omit<StorySubmission, "id" | "submittedAt">;
+
 /**
  * A known place pinned at its true position on the (artistic) reference map.
  * Used to fit a projection from real lat/lng to normalized map coords, since a

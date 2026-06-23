@@ -1,18 +1,21 @@
 import "./styles.css";
 import {
+  approveSubmission,
   clearAdminToken,
   createCard,
   deleteCard,
   fetchAllCards,
   fetchCalibration,
+  fetchSubmissions,
   geocodeAddress,
   getAdminToken,
+  rejectSubmission,
   setAdminToken,
   updateCard,
   verifyAdminPassword,
 } from "../shared/api";
 import { buildProjection, describeProjection, projectLatLng, type Projection } from "../shared/geo";
-import type { CalibrationPoint, InfoCard } from "../shared/types";
+import type { CalibrationPoint, InfoCard, StorySubmission } from "../shared/types";
 import { createCalibrationPanel } from "./calibrationPanel";
 import { createMapEditor } from "./mapEditor";
 
@@ -98,18 +101,27 @@ function renderDashboard(root: HTMLElement): void {
           <p>Place cards on the world map for the AR experience.</p>
         </div>
         <div class="admin-header__actions">
+          <a href="/share-story.html" class="admin-link">Share story form</a>
           <a href="/" class="admin-link">Open AR Viewer</a>
           <button type="button" id="logout-btn" class="admin-btn admin-btn--ghost">Sign out</button>
         </div>
       </header>
       <div class="admin-layout">
-        <section class="admin-panel">
-          <div class="admin-panel__head">
-            <h2>Cards</h2>
-            <button type="button" id="new-card-btn" class="admin-btn">New card</button>
-          </div>
-          <ul id="card-list" class="admin-card-list"></ul>
-        </section>
+        <div class="admin-sidebar">
+          <section class="admin-panel admin-panel--submissions">
+            <div class="admin-panel__head">
+              <h2>Pending submissions <span id="submission-count" class="admin-badge" hidden>0</span></h2>
+            </div>
+            <ul id="submission-list" class="admin-submission-list"></ul>
+          </section>
+          <section class="admin-panel">
+            <div class="admin-panel__head">
+              <h2>Cards</h2>
+              <button type="button" id="new-card-btn" class="admin-btn">New card</button>
+            </div>
+            <ul id="card-list" class="admin-card-list"></ul>
+          </section>
+        </div>
         <section class="admin-panel admin-panel--editor">
           <h2 id="form-title">Edit card</h2>
           <form id="card-form" class="admin-form">
@@ -131,9 +143,10 @@ function renderDashboard(root: HTMLElement): void {
             </div>
             <p id="form-error" class="admin-error" hidden></p>
           </form>
-          <div id="calibration-host"></div>
           <div id="map-editor-host" class="admin-map-host"></div>
           <p id="geocode-hint" class="admin-muted">Drag the selected (green) pin to fine-tune placement on the map.</p>
+          <button type="button" id="calibrate-toggle-btn" class="admin-btn admin-btn--ghost admin-calibrate-toggle" aria-expanded="false">Calibrate Map</button>
+          <div id="calibration-host" hidden></div>
         </section>
       </div>
     </div>
@@ -149,6 +162,7 @@ function renderDashboard(root: HTMLElement): void {
 
 async function setupDashboard(root: HTMLElement): Promise<void> {
   let cards: InfoCard[] = [];
+  let submissions: StorySubmission[] = [];
   let calibrationPoints: CalibrationPoint[] = [];
   let projection: Projection = buildProjection([]);
   let selectedId: string | null = null;
@@ -157,14 +171,23 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   let calibrationPanel: ReturnType<typeof createCalibrationPanel> | null = null;
 
   const listEl = root.querySelector("#card-list") as HTMLUListElement;
+  const submissionListEl = root.querySelector("#submission-list") as HTMLUListElement;
+  const submissionCountEl = root.querySelector("#submission-count") as HTMLElement;
   const form = root.querySelector("#card-form") as HTMLFormElement;
   const formTitle = root.querySelector("#form-title") as HTMLElement;
   const formError = root.querySelector("#form-error") as HTMLElement;
   const geocodeResult = root.querySelector("#geocode-result") as HTMLElement;
   const geocodeHint = root.querySelector("#geocode-hint") as HTMLElement;
   const calibrationHost = root.querySelector("#calibration-host") as HTMLElement;
+  const calibrateToggleBtn = root.querySelector("#calibrate-toggle-btn") as HTMLButtonElement;
   const mapHost = root.querySelector("#map-editor-host") as HTMLElement;
   const deleteBtn = root.querySelector("#delete-btn") as HTMLButtonElement;
+
+  calibrateToggleBtn.addEventListener("click", () => {
+    const open = calibrationHost.hidden;
+    calibrationHost.hidden = !open;
+    calibrateToggleBtn.setAttribute("aria-expanded", String(open));
+  });
 
   const applyCalibration = (points: CalibrationPoint[]): void => {
     calibrationPoints = points;
@@ -172,7 +195,7 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     geocodeHint.textContent =
       points.length >= 2
         ? `${describeProjection(points)} Drag the green pin to fine-tune if needed.`
-        : "Add at least 2 calibration points above for accurate geocoding. Until then, placement is approximate — drag the pin manually.";
+        : "Open Calibrate Map and add at least 2 points for accurate geocoding. Until then, placement is approximate — drag the pin manually.";
   };
 
   const mountCalibrationPanel = (): void => {
@@ -185,14 +208,122 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   };
 
   const load = async (): Promise<void> => {
-    const [loadedCards, loadedCalibration] = await Promise.all([fetchAllCards(), fetchCalibration()]);
+    const [loadedCards, loadedCalibration, loadedSubmissions] = await Promise.all([
+      fetchAllCards(),
+      fetchCalibration(),
+      fetchSubmissions(),
+    ]);
     cards = loadedCards;
+    submissions = loadedSubmissions;
     applyCalibration(loadedCalibration);
     mountCalibrationPanel();
+    renderSubmissions();
+    if (selectedId && cards.some((c) => c.id === selectedId)) {
+      selectCard(selectedId);
+      return;
+    }
     if (!selectedId && cards.length > 0) {
       selectCard(cards[0].id);
       return;
     }
+    renderList();
+    refreshMapEditor();
+  };
+
+  const renderSubmissions = (): void => {
+    const count = submissions.length;
+    submissionCountEl.textContent = String(count);
+    submissionCountEl.hidden = count === 0;
+
+    if (count === 0) {
+      submissionListEl.innerHTML = `<li class="admin-muted">No pending submissions.</li>`;
+      return;
+    }
+
+    submissionListEl.innerHTML = submissions
+      .map(
+        (submission) => `
+          <li class="admin-submission">
+            <div class="admin-submission__body">
+              <strong>${escapeHtml(submission.title)}</strong>
+              <span>${escapeHtml(submission.companyName || "No company")}</span>
+              <span>${escapeHtml(submission.address)}</span>
+              <time class="admin-muted">${formatSubmittedAt(submission.submittedAt)}</time>
+            </div>
+            <div class="admin-submission__actions">
+              <button type="button" class="admin-btn admin-btn--small" data-approve="${escapeAttr(submission.id)}">Approve</button>
+              <button type="button" class="admin-btn admin-btn--ghost admin-btn--small" data-reject="${escapeAttr(submission.id)}">Reject</button>
+            </div>
+          </li>
+        `
+      )
+      .join("");
+
+    submissionListEl.querySelectorAll("[data-approve]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        void handleApproveSubmission(btn.getAttribute("data-approve")!);
+      });
+    });
+
+    submissionListEl.querySelectorAll("[data-reject]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        void handleRejectSubmission(btn.getAttribute("data-reject")!);
+      });
+    });
+  };
+
+  const handleApproveSubmission = async (id: string): Promise<void> => {
+    const submission = submissions.find((s) => s.id === id);
+    if (!submission) return;
+    if (!confirm(`Approve "${submission.title}" and add it as an inactive card for map placement?`)) return;
+
+    try {
+      const card = await approveSubmission(id);
+      submissions = submissions.filter((s) => s.id !== id);
+      renderSubmissions();
+      applySavedCard(card);
+      geocodeResult.textContent = "Approved — geocode the address and drag the pin, then activate when ready.";
+    } catch (error) {
+      formError.textContent = error instanceof Error ? error.message : "Approval failed.";
+      formError.hidden = false;
+    }
+  };
+
+  const handleRejectSubmission = async (id: string): Promise<void> => {
+    const submission = submissions.find((s) => s.id === id);
+    if (!submission) return;
+    if (!confirm(`Reject "${submission.title}"? This cannot be undone.`)) return;
+
+    try {
+      await rejectSubmission(id);
+      submissions = submissions.filter((s) => s.id !== id);
+      renderSubmissions();
+    } catch (error) {
+      formError.textContent = error instanceof Error ? error.message : "Rejection failed.";
+      formError.hidden = false;
+    }
+  };
+
+  const syncPinPositionFromMap = (): void => {
+    const pos = mapEditor?.getSelectedPinPosition();
+    if (!pos) return;
+    formState.mapX = pos.mapX;
+    formState.mapY = pos.mapY;
+  };
+
+  const applySavedCard = (saved: InfoCard): void => {
+    const { id, ...state } = saved;
+    selectedId = id;
+    formState = state;
+    const idx = cards.findIndex((c) => c.id === id);
+    if (idx === -1) {
+      cards.push(saved);
+    } else {
+      cards[idx] = saved;
+    }
+    deleteBtn.hidden = false;
+    formTitle.textContent = "Edit card";
+    fillForm(form, formState);
     renderList();
     refreshMapEditor();
   };
@@ -293,18 +424,14 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     formError.hidden = true;
+    syncPinPositionFromMap();
     formState = readForm(form, formState);
 
     try {
-      if (selectedId) {
-        await updateCard(selectedId, formState);
-      } else {
-        const created = await createCard(formState);
-        selectedId = created.id;
-        deleteBtn.hidden = false;
-        formTitle.textContent = "Edit card";
-      }
-      await load();
+      const saved = selectedId
+        ? await updateCard(selectedId, formState)
+        : await createCard(formState);
+      applySavedCard(saved);
     } catch (error) {
       formError.textContent = error instanceof Error ? error.message : "Save failed.";
       formError.hidden = false;
@@ -364,4 +491,14 @@ function escapeHtml(value: string): string {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function escapeAttr(value: string): string {
+  return escapeHtml(value).replaceAll("'", "&#39;");
+}
+
+function formatSubmittedAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }

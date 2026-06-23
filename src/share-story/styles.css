@@ -1,0 +1,121 @@
+.share-story {
+  min-height: 100vh;
+  background: linear-gradient(160deg, #0a1628 0%, #1e3a5f 55%, #2563eb 120%);
+  color: #f8fafc;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.share-story__inner {
+  width: min(100%, 560px);
+  margin: 0 auto;
+}
+
+.share-story__header {
+  margin-bottom: 1.5rem;
+}
+
+.share-story__header h1 {
+  margin: 0 0 0.5rem;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+}
+
+.share-story__header p {
+  margin: 0;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.share-story__back {
+  display: inline-block;
+  margin-bottom: 1rem;
+  color: #93c5fd;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.share-story__back:hover {
+  text-decoration: underline;
+}
+
+.share-story__form {
+  background: #fff;
+  color: #0f172a;
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.25);
+  display: grid;
+  gap: 0.85rem;
+}
+
+.share-story__form label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.share-story__form input,
+.share-story__form textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  font-weight: 400;
+}
+
+.share-story__form textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.share-story__hint {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #64748b;
+}
+
+.share-story__submit {
+  border: 0;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  background: #2563eb;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.share-story__submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.share-story__error {
+  margin: 0;
+  color: #dc2626;
+  font-size: 0.9rem;
+}
+
+.share-story__success {
+  background: #fff;
+  color: #0f172a;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.25);
+}
+
+.share-story__success h2 {
+  margin: 0 0 0.5rem;
+}
+
+.share-story__success p {
+  margin: 0 0 1rem;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.share-story__success a {
+  color: #2563eb;
+}

@@ -1,4 +1,4 @@
-import type { CalibrationPoint, GeocodeResult, InfoCard } from "./types";
+import type { CalibrationPoint, GeocodeResult, InfoCard, StorySubmission, StorySubmissionInput } from "./types";
 
 const TOKEN_KEY = "ar_admin_token";
 
@@ -22,6 +22,14 @@ function authHeaders(): HeadersInit {
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const text = await response.text();
+    try {
+      const parsed = JSON.parse(text) as { error?: string };
+      if (typeof parsed.error === "string" && parsed.error) {
+        throw new Error(parsed.error);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message !== text) throw error;
+    }
     throw new Error(text || response.statusText);
   }
   return response.json() as Promise<T>;
@@ -92,4 +100,37 @@ export async function verifyAdminPassword(password: string): Promise<{ ok: boole
     headers: { Authorization: `Bearer ${password}` },
   });
   return { ok: response.ok, status: response.status };
+}
+
+export async function submitStory(input: StorySubmissionInput): Promise<{ ok: true; id: string }> {
+  const response = await fetch("/api/submissions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseJson<{ ok: true; id: string }>(response);
+}
+
+export async function fetchSubmissions(): Promise<StorySubmission[]> {
+  const response = await fetch("/api/submissions", { headers: authHeaders() });
+  return parseJson<StorySubmission[]>(response);
+}
+
+export async function approveSubmission(id: string): Promise<InfoCard> {
+  const response = await fetch(`/api/submissions/${id}/approve`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  return parseJson<InfoCard>(response);
+}
+
+export async function rejectSubmission(id: string): Promise<void> {
+  const response = await fetch(`/api/submissions/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || response.statusText);
+  }
 }

@@ -145,7 +145,16 @@ export function createCalibrationPanel(
     }
   });
 
+  const syncSelectedPinPosition = (): void => {
+    const pos = mapEditor?.getSelectedPinPosition();
+    if (!pos || !selectedId) return;
+    const idx = points.findIndex((p) => p.id === selectedId);
+    if (idx === -1) return;
+    points[idx] = { ...points[idx], mapX: pos.mapX, mapY: pos.mapY };
+  };
+
   saveBtn.addEventListener("click", async () => {
+    syncSelectedPinPosition();
     saveBtn.disabled = true;
     msgEl.textContent = "Saving…";
     try {

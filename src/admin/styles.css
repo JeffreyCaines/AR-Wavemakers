@@ -96,9 +96,74 @@
 
 .admin-layout {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 320px 1fr;
   gap: 1rem;
   align-items: start;
+}
+
+.admin-sidebar {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: #ea580c;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.admin-btn--small {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.admin-submission-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.admin-submission {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.admin-submission__body {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.admin-submission__body strong {
+  font-size: 0.92rem;
+}
+
+.admin-submission__body span {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.admin-submission__actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.admin-panel--submissions {
+  max-height: 320px;
+  overflow: auto;
 }
 
 .admin-panel {
@@ -258,8 +323,12 @@
   background: #c2410c;
 }
 
+.admin-calibrate-toggle {
+  margin-top: 0.75rem;
+}
+
 .calibration {
-  margin-top: 1.25rem;
+  margin-top: 1rem;
   padding-top: 1.25rem;
   border-top: 1px solid #e2e8f0;
 }
