@@ -99,7 +99,7 @@ function renderDashboard(root: HTMLElement): void {
       <header class="admin-header">
         <div>
           <a href="https://technl.ca/">
-          <img src="${techNlLogoUrl}" width="1080" height="424" alt="techNL" id="logo" data-height-percentage="54" data-actual-width="1080" data-actual-height="424">
+          <img src="${techNlLogoUrl}" alt="techNL" class="admin-header__logo">
           </a>
           <p>Place cards on the world map for the AR experience.</p>
         </div>

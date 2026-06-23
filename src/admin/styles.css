@@ -96,7 +96,10 @@ body:has(.admin:not(.admin--login)) {
 }
 
 .admin-header img {
+  display: block;
   height: 4rem;
+  width: auto;
+  max-width: 100%;
 }
 
 .admin-header__actions {
