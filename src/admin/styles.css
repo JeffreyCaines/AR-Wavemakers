@@ -95,6 +95,10 @@ body:has(.admin:not(.admin--login)) {
   font-size: 0.9rem;
 }
 
+.admin-header img {
+  height: 4rem;
+}
+
 .admin-header__actions {
   display: flex;
   gap: 0.5rem;
