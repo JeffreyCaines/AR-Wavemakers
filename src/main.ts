@@ -13,6 +13,12 @@ async function route(): Promise<void> {
     return;
   }
 
+  if (path === "/ar-preview") {
+    const { initArSimViewer } = await import("./ar/simViewer");
+    initArSimViewer(app);
+    return;
+  }
+
   const { initArViewer } = await import("./ar/viewer");
   initArViewer(app);
 }

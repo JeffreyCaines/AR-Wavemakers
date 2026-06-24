@@ -6,7 +6,16 @@ const BLOB_KEY = "cards.json";
 const CALIBRATION_KEY = "calibration.json";
 const SUBMISSIONS_KEY = "submissions.json";
 
+/** Netlify Dev runs a separate Blobs sandbox — use data/*.json so prod exports work locally. */
+function useLocalStorage(): boolean {
+  return process.env.NETLIFY_DEV === "true";
+}
+
 export async function loadCards(): Promise<InfoCard[]> {
+  if (useLocalStorage()) {
+    return loadLocalCards();
+  }
+
   try {
     const { getStore } = await import("@netlify/blobs");
     const store = getStore(STORE_NAME);
@@ -25,6 +34,11 @@ export async function loadCards(): Promise<InfoCard[]> {
 }
 
 export async function saveCards(cards: InfoCard[]): Promise<void> {
+  if (useLocalStorage()) {
+    await saveLocalCards(cards);
+    return;
+  }
+
   try {
     const { getStore } = await import("@netlify/blobs");
     const store = getStore(STORE_NAME);
@@ -66,6 +80,10 @@ async function saveLocalCards(cards: InfoCard[]): Promise<void> {
 }
 
 export async function loadCalibration(): Promise<CalibrationPoint[]> {
+  if (useLocalStorage()) {
+    return loadLocalJson<CalibrationPoint[]>("calibration.json", []);
+  }
+
   try {
     const { getStore } = await import("@netlify/blobs");
     const store = getStore(STORE_NAME);
@@ -79,6 +97,11 @@ export async function loadCalibration(): Promise<CalibrationPoint[]> {
 }
 
 export async function saveCalibration(points: CalibrationPoint[]): Promise<void> {
+  if (useLocalStorage()) {
+    await saveLocalJson("calibration.json", points);
+    return;
+  }
+
   try {
     const { getStore } = await import("@netlify/blobs");
     const store = getStore(STORE_NAME);
@@ -111,6 +134,10 @@ async function saveLocalJson(fileName: string, value: unknown): Promise<void> {
 }
 
 export async function loadSubmissions(): Promise<StorySubmission[]> {
+  if (useLocalStorage()) {
+    return loadLocalJson<StorySubmission[]>("submissions.json", []);
+  }
+
   try {
     const { getStore } = await import("@netlify/blobs");
     const store = getStore(STORE_NAME);
@@ -124,6 +151,11 @@ export async function loadSubmissions(): Promise<StorySubmission[]> {
 }
 
 export async function saveSubmissions(submissions: StorySubmission[]): Promise<void> {
+  if (useLocalStorage()) {
+    await saveLocalJson("submissions.json", submissions);
+    return;
+  }
+
   try {
     const { getStore } = await import("@netlify/blobs");
     const store = getStore(STORE_NAME);

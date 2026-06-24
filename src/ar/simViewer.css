@@ -1,0 +1,120 @@
+.ar-sim {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #0a1628;
+  color: #f4f7fb;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.ar-sim__chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 960px;
+  padding: 0.75rem 1rem;
+  flex-shrink: 0;
+}
+
+.ar-sim__back {
+  color: #93c5fd;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.ar-sim__back:hover {
+  text-decoration: underline;
+}
+
+.ar-sim__orientation-toggle {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f7fb;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.ar-sim__orientation-toggle:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.ar-sim__hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.ar-sim__stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+  padding: 0 1rem 1rem;
+}
+
+.ar-sim-device {
+  position: relative;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-radius: 24px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 20px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  background: #000;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.ar-sim-device--portrait {
+  width: min(390px, 100%);
+  height: min(844px, calc(100vh - 7rem));
+  aspect-ratio: 390 / 844;
+}
+
+.ar-sim-device--landscape {
+  width: min(844px, 100%);
+  height: min(390px, calc(100vh - 7rem));
+  aspect-ratio: 844 / 390;
+}
+
+.ar-sim-device .ar-app {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.ar-sim-device .ar-app--sim .ar-instructions {
+  pointer-events: none;
+}
+
+.ar-sim-device .ar-container {
+  cursor: grab;
+}
+
+.ar-sim-device .ar-container:active {
+  cursor: grabbing;
+}
+
+.ar-sim-device .ar-crosshair {
+  position: absolute;
+}
+
+.ar-sim-device .ar-sheet-backdrop,
+.ar-sim-device .ar-sheet {
+  position: absolute;
+}
+
+.ar-sim-device .ar-sheet {
+  height: 60%;
+  max-height: 60%;
+}

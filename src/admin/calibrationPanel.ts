@@ -22,24 +22,21 @@ export function createCalibrationPanel(
 
   mainHost.innerHTML = `
     <div class="calibration">
-      <div class="calibration__head">
-        <h3>Map calibration</h3>
-        <p id="calibration-status" class="admin-muted"></p>
+      <div class="calibration__add">
+        <button type="button" id="calibration-add-btn" class="admin-btn admin-btn--ghost">Add point</button>
+        <input type="text" id="calibration-address" placeholder="City, Country" />
+        <button type="button" id="calibration-save-btn" class="admin-btn">Save calibration</button>
       </div>
-      <p class="calibration__help">
+      <div class="calibration__head">
+       <p id="calibration-status" class="admin-muted"></p> 
+      </div>
+      <p id="calibration-help" class="calibration__help">
         This map is artistic and does not match real-world geography. Add at least
         <strong>two</strong> cities you can identify on the wall map, drag each pin
         to its true spot, then save. Future geocoding uses that fit.
       </p>
-      <div class="calibration__add">
-        <input type="text" id="calibration-address" placeholder="City, Country" />
-        <button type="button" id="calibration-add-btn" class="admin-btn admin-btn--ghost">Add point</button>
-      </div>
+      <p id="calibration-msg" class="calibration__msg admin-muted" hidden></p>
       <div id="calibration-map-host" class="admin-map-host"></div>
-      <div class="calibration__actions">
-        <button type="button" id="calibration-save-btn" class="admin-btn">Save calibration</button>
-        <span id="calibration-msg" class="admin-muted"></span>
-      </div>
     </div>
   `;
 
@@ -49,9 +46,29 @@ export function createCalibrationPanel(
   const addBtn = mainHost.querySelector("#calibration-add-btn") as HTMLButtonElement;
   const saveBtn = mainHost.querySelector("#calibration-save-btn") as HTMLButtonElement;
   const msgEl = mainHost.querySelector("#calibration-msg") as HTMLElement;
+  const helpEl = mainHost.querySelector("#calibration-help") as HTMLElement;
+  const defaultAddressPlaceholder = "City, Country";
+
+  const setAddressPlaceholder = (message?: string): void => {
+    addressInput.placeholder = message
+      ? `${defaultAddressPlaceholder} - ${message}`
+      : defaultAddressPlaceholder;
+  };
+
+  const showSaveMessage = (message: string): void => {
+    msgEl.textContent = message;
+    msgEl.hidden = !message;
+  };
+
+  addressInput.addEventListener("input", () => {
+    if (addressInput.placeholder !== defaultAddressPlaceholder) {
+      setAddressPlaceholder();
+    }
+  });
 
   const refreshStatus = (): void => {
     statusEl.textContent = describeProjection(points);
+    helpEl.hidden = points.length >= 2;
   };
 
   const refreshList = (): void => {
@@ -119,11 +136,11 @@ export function createCalibrationPanel(
   addBtn.addEventListener("click", async () => {
     const query = addressInput.value.trim();
     if (!query) {
-      msgEl.textContent = "Enter a city first.";
+      setAddressPlaceholder("Enter a city first.");
       return;
     }
     addBtn.disabled = true;
-    msgEl.textContent = "Looking up…";
+    setAddressPlaceholder("Looking up…");
     try {
       const result = await geocodeAddress(query);
       const { mapX, mapY } = latLngToMapXY(result.lat, result.lng);
@@ -138,12 +155,13 @@ export function createCalibrationPanel(
       points.push(point);
       selectedId = point.id;
       addressInput.value = "";
-      msgEl.textContent = "Drag the orange pin to the correct spot on the map, then save.";
+      setAddressPlaceholder();
+      showSaveMessage("Drag the orange pin to the correct spot on the map, then save.");
       refreshList();
       refreshMap();
       refreshStatus();
     } catch (error) {
-      msgEl.textContent = error instanceof Error ? error.message : "Geocoding failed.";
+      setAddressPlaceholder(error instanceof Error ? error.message : "Geocoding failed.");
     } finally {
       addBtn.disabled = false;
     }
@@ -160,15 +178,15 @@ export function createCalibrationPanel(
   saveBtn.addEventListener("click", async () => {
     syncSelectedPinPosition();
     saveBtn.disabled = true;
-    msgEl.textContent = "Saving…";
+    showSaveMessage("Saving…");
     try {
       points = await saveCalibration(points);
       callbacks.onChange(points);
-      msgEl.textContent = "Calibration saved.";
+      showSaveMessage("Calibration saved.");
       refreshList();
       refreshStatus();
     } catch (error) {
-      msgEl.textContent = error instanceof Error ? error.message : "Save failed.";
+      showSaveMessage(error instanceof Error ? error.message : "Save failed.");
     } finally {
       saveBtn.disabled = false;
     }

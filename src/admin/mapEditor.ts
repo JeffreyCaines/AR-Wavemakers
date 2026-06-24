@@ -1,4 +1,5 @@
-import { MAP_ADMIN_REFERENCE_PATH } from "../shared/types";
+import { buildCardContentHtml } from "../shared/cardContent";
+import { MAP_ADMIN_REFERENCE_PATH, type InfoCard } from "../shared/types";
 
 export interface PinDatum {
   id: string;
@@ -22,6 +23,8 @@ export interface MapEditorOptions {
   toDisplayCoords?: (mapX: number, mapY: number) => { mapX: number; mapY: number };
   /** Convert displayed image coords back to stored space. Defaults to identity. */
   fromDisplayCoords?: (mapX: number, mapY: number) => { mapX: number; mapY: number };
+  /** When set, hovering near a pin shows the AR-style card preview. */
+  previewCards?: InfoCard[];
 }
 
 export function createMapEditor(
@@ -41,6 +44,7 @@ export function createMapEditor(
     imagePath = MAP_ADMIN_REFERENCE_PATH,
     toDisplayCoords = (mapX, mapY) => ({ mapX, mapY }),
     fromDisplayCoords = (mapX, mapY) => ({ mapX, mapY }),
+    previewCards,
   } = options;
 
   container.innerHTML = `
@@ -57,11 +61,136 @@ export function createMapEditor(
   const missing = container.querySelector(".map-editor__missing") as HTMLElement;
   const pinsLayer = container.querySelector(".map-editor__pins") as HTMLElement;
   let selectedPin: HTMLButtonElement | null = null;
+  let previewHost: HTMLElement | null = null;
+  let previewPanel: HTMLElement | null = null;
+  let previewCardId: string | null = null;
+  const previewEnabled = Boolean(previewCards?.length);
 
   image.addEventListener("error", () => {
     image.style.display = "none";
     missing.hidden = false;
   });
+
+  function ensurePreviewLayer(): void {
+    if (previewHost) return;
+    previewHost = document.createElement("div");
+    previewHost.className = "map-editor__preview-host";
+    previewPanel = document.createElement("div");
+    previewPanel.className = "map-editor__preview";
+    previewHost.append(previewPanel);
+    pinsLayer.appendChild(previewHost);
+  }
+
+  function setPreviewPinHighlight(cardId: string | null): void {
+    pinsLayer.querySelectorAll(".map-editor__pin").forEach((pin) => {
+      const pinEl = pin as HTMLElement;
+      pinEl.classList.toggle("map-editor__pin--preview", cardId !== null && pinEl.dataset.id === cardId);
+    });
+  }
+
+  function hidePreview(): void {
+    if (!previewHost) return;
+    previewHost.hidden = true;
+    previewCardId = null;
+    setPreviewPinHighlight(null);
+  }
+
+  function showPreview(card: InfoCard, displayMapX: number, displayMapY: number): void {
+    ensurePreviewLayer();
+    previewHost!.style.left = `${displayMapX * 100}%`;
+    previewHost!.style.top = `${displayMapY * 100}%`;
+    previewPanel!.innerHTML = buildCardContentHtml(card);
+    previewHost!.hidden = false;
+    previewCardId = card.id;
+    setPreviewPinHighlight(card.id);
+  }
+
+  function getPinElement(cardId: string): HTMLElement | null {
+    return pinsLayer.querySelector(`.map-editor__pin[data-id="${CSS.escape(cardId)}"]`);
+  }
+
+  function isPointerOnPinDot(event: PointerEvent, cardId: string): boolean {
+    const pin = getPinElement(cardId);
+    if (!pin) return false;
+
+    const rect = pin.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const radius = rect.width / 2;
+    return Math.hypot(event.clientX - centerX, event.clientY - centerY) <= radius;
+  }
+
+  function isPointerInPreviewSafeZone(event: PointerEvent, cardId: string): boolean {
+    if (isPointerOnPinDot(event, cardId)) return true;
+    if (!previewPanel || previewHost?.hidden) return false;
+
+    const panelRect = previewPanel.getBoundingClientRect();
+    const x = event.clientX;
+    const y = event.clientY;
+
+    if (x >= panelRect.left && x <= panelRect.right && y >= panelRect.top && y <= panelRect.bottom) {
+      return true;
+    }
+
+    const pin = getPinElement(cardId);
+    if (!pin) return false;
+
+    const pinRect = pin.getBoundingClientRect();
+    const bridgeLeft = panelRect.left;
+    const bridgeRight = panelRect.right;
+    const bridgeTop = panelRect.bottom;
+    const bridgeBottom = pinRect.bottom;
+
+    return y >= bridgeTop && y <= bridgeBottom && x >= bridgeLeft && x <= bridgeRight;
+  }
+
+  function findPreviewCardToOpen(event: PointerEvent): { card: InfoCard; displayMapX: number; displayMapY: number } | null {
+    if (!previewCards?.length) return null;
+
+    for (const card of previewCards) {
+      if (!isPointerOnPinDot(event, card.id)) continue;
+
+      const pin = pins.find((entry) => entry.id === card.id);
+      if (!pin) continue;
+
+      const display = toDisplayCoords(pin.mapX, pin.mapY);
+      return { card, displayMapX: display.mapX, displayMapY: display.mapY };
+    }
+
+    return null;
+  }
+
+  function updatePreviewFromPointer(event: PointerEvent): void {
+    if (!previewEnabled || dragging) {
+      hidePreview();
+      return;
+    }
+
+    if (previewCardId && previewHost && !previewHost.hidden) {
+      if (isPointerInPreviewSafeZone(event, previewCardId)) {
+        return;
+      }
+
+      const next = findPreviewCardToOpen(event);
+      if (next) {
+        showPreview(next.card, next.displayMapX, next.displayMapY);
+        return;
+      }
+
+      hidePreview();
+      return;
+    }
+
+    const match = findPreviewCardToOpen(event);
+    if (!match) {
+      hidePreview();
+      return;
+    }
+
+    showPreview(match.card, match.displayMapX, match.displayMapY);
+  }
 
   function renderPins(): void {
     pinsLayer.innerHTML = "";
@@ -115,17 +244,35 @@ export function createMapEditor(
     const target = (event.target as HTMLElement).closest(".map-editor__pin") as HTMLButtonElement | null;
     if (!target?.classList.contains("map-editor__pin--selected")) return;
     dragging = true;
+    hidePreview();
     target.setPointerCapture(event.pointerId);
     event.preventDefault();
   };
 
   const onPointerMove = (event: PointerEvent): void => {
-    if (!dragging || !selectedPin) return;
-    const coords = pointerToMapXY(event);
-    if (!coords) return;
-    positionPin(selectedPin, coords.mapX, coords.mapY);
-    const stored = fromDisplayCoords(coords.mapX, coords.mapY);
-    callbacks.onPinMove(stored.mapX, stored.mapY);
+    if (dragging && selectedPin) {
+      hidePreview();
+      const coords = pointerToMapXY(event);
+      if (!coords) return;
+      positionPin(selectedPin, coords.mapX, coords.mapY);
+      const stored = fromDisplayCoords(coords.mapX, coords.mapY);
+      callbacks.onPinMove(stored.mapX, stored.mapY);
+      return;
+    }
+
+    updatePreviewFromPointer(event);
+  };
+
+  const onPointerLeave = (event: PointerEvent): void => {
+    const related = event.relatedTarget;
+    if (related instanceof Node) {
+      if (previewPanel?.contains(related)) return;
+      if (previewCardId) {
+        const pin = getPinElement(previewCardId);
+        if (pin?.contains(related)) return;
+      }
+    }
+    hidePreview();
   };
 
   const stopDrag = (): void => {
@@ -134,6 +281,7 @@ export function createMapEditor(
 
   pinsLayer.addEventListener("pointerdown", onPointerDown);
   pinsLayer.addEventListener("pointermove", onPointerMove);
+  pinsLayer.addEventListener("pointerleave", onPointerLeave);
   pinsLayer.addEventListener("pointerup", stopDrag);
   pinsLayer.addEventListener("pointercancel", stopDrag);
 
@@ -155,6 +303,7 @@ export function createMapEditor(
     destroy(): void {
       pinsLayer.removeEventListener("pointerdown", onPointerDown);
       pinsLayer.removeEventListener("pointermove", onPointerMove);
+      pinsLayer.removeEventListener("pointerleave", onPointerLeave);
       pinsLayer.removeEventListener("pointerup", stopDrag);
       pinsLayer.removeEventListener("pointercancel", stopDrag);
     },

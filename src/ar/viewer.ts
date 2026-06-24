@@ -1,26 +1,19 @@
 import "./styles.css";
-import * as THREE from "three";
-import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
+import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { MindARThree } from "mind-ar/dist/mindar-image-three.prod.js";
 import { fetchActiveCards } from "../shared/api";
-import { loadMapAspectRatio, mapXYToAnchorPosition } from "../shared/geo";
+import { loadMapAspectRatio } from "../shared/geo";
 import { DEFAULT_MAP_ASPECT_RATIO, MAP_REFERENCE_PATH, MAP_TARGET_PATH } from "../shared/types";
 import type { InfoCard } from "../shared/types";
-
-// How close (in normalized device coordinates) the screen-center crosshair must
-// be to a card anchor for that card to expand. ~8% of the map width.
-const POINT_THRESHOLD = 0.12;
-const SHEET_OPEN_DELAY_MS = 1500;
-const SHEET_SWIPE_DISMISS_PX = 72;
-const SHEET_DRAG_START_PX = 8;
-
-interface CardOverlay {
-  card: InfoCard;
-  markerObject: CSS2DObject;
-  panelObject: CSS2DObject;
-  marker: HTMLDivElement;
-  panel: HTMLDivElement;
-}
+import {
+  createActiveCardTracker,
+  createCardDetailSheet,
+  createCardOverlay,
+  updatePointing,
+  updateTrackingUI,
+  type ActiveCardTracker,
+  type CardOverlay,
+} from "./viewerShared";
 
 export function initArViewer(root: HTMLElement): void {
   root.innerHTML = `
@@ -57,9 +50,6 @@ export function initArViewer(root: HTMLElement): void {
   let overlays: CardOverlay[] = [];
   let aspectRatio = DEFAULT_MAP_ASPECT_RATIO;
   let tracking = false;
-  let sheetTimer: ReturnType<typeof setTimeout> | null = null;
-  let loseTargetTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingSheetCardId: string | null = null;
   let activeCardTracker: ActiveCardTracker | null = null;
   let arSessionActive = false;
   const arApp = root.querySelector(".ar-app") as HTMLElement;
@@ -73,8 +63,7 @@ export function initArViewer(root: HTMLElement): void {
       document.documentElement.classList.add("ar-sheet-open");
     },
     onDismiss: () => {
-      clearSheetTimers();
-      pendingSheetCardId = null;
+      activeCardTracker?.resetSheetTimer();
       arApp.classList.remove("ar-app--sheet-open");
       document.documentElement.classList.remove("ar-sheet-open");
     },
@@ -86,8 +75,6 @@ export function initArViewer(root: HTMLElement): void {
 
   function resetTargetingState(): void {
     tracking = false;
-    clearSheetTimers();
-    pendingSheetCardId = null;
     activeCardTracker?.resetSheetTimer();
 
     const sheetOpen = detailSheet.isOpen();
@@ -227,328 +214,6 @@ export function initArViewer(root: HTMLElement): void {
       renderer.render(scene, camera);
     });
   }
-
-  function clearSheetTimers(): void {
-    if (sheetTimer !== null) {
-      clearTimeout(sheetTimer);
-      sheetTimer = null;
-    }
-    if (loseTargetTimer !== null) {
-      clearTimeout(loseTargetTimer);
-      loseTargetTimer = null;
-    }
-  }
-
-  function createActiveCardTracker(sheet: CardDetailSheet): ActiveCardTracker {
-    return {
-      handleActiveCard(activeCard: InfoCard | null): void {
-        if (sheet.isOpen()) {
-          return;
-        }
-
-        if (!activeCard) {
-          if (pendingSheetCardId && loseTargetTimer === null) {
-            loseTargetTimer = setTimeout(() => {
-              loseTargetTimer = null;
-              clearSheetTimers();
-              pendingSheetCardId = null;
-            }, 500);
-          }
-          return;
-        }
-
-        if (loseTargetTimer !== null) {
-          clearTimeout(loseTargetTimer);
-          loseTargetTimer = null;
-        }
-
-        if (pendingSheetCardId !== activeCard.id) {
-          if (sheetTimer !== null) {
-            clearTimeout(sheetTimer);
-            sheetTimer = null;
-          }
-          pendingSheetCardId = activeCard.id;
-          sheetTimer = setTimeout(() => {
-            sheetTimer = null;
-            if (pendingSheetCardId === activeCard.id && !sheet.isOpen()) {
-              sheet.show(activeCard);
-            }
-          }, SHEET_OPEN_DELAY_MS);
-        }
-      },
-      resetSheetTimer(): void {
-        clearSheetTimers();
-        pendingSheetCardId = null;
-      },
-    };
-  }
-}
-
-function createCardOverlay(card: InfoCard, aspectRatio: number): CardOverlay {
-  const pos = mapXYToAnchorPosition(card.mapX, card.mapY, aspectRatio);
-
-  const markerHost = document.createElement("div");
-  markerHost.className = "ar-card-marker-host";
-
-  const marker = document.createElement("div");
-  marker.className = "ar-card__marker";
-  markerHost.append(marker);
-
-  const panelHost = document.createElement("div");
-  panelHost.className = "ar-card-panel-host";
-
-  const panel = document.createElement("div");
-  panel.className = "ar-card__panel";
-  panel.innerHTML = buildCardContentHtml(card);
-  panelHost.append(panel);
-
-  const markerObject = new CSS2DObject(markerHost);
-  markerObject.position.set(pos.x, pos.y, 0);
-  markerObject.renderOrder = 0;
-
-  const panelObject = new CSS2DObject(panelHost);
-  panelObject.position.set(pos.x, pos.y, 0);
-  panelObject.renderOrder = 1;
-
-  return { card, markerObject, panelObject, marker, panel };
-}
-
-function updateTrackingUI(statusEl: HTMLElement, tracking: boolean): void {
-  if (tracking) {
-    statusEl.textContent = "Map detected. Aim at a location.";
-    statusEl.classList.add("ar-status--tracking");
-  } else {
-    statusEl.textContent = "Point your camera at the map on the wall.";
-    statusEl.classList.remove("ar-status--tracking");
-  }
-}
-
-/** Project each card to screen space and expand the one nearest the crosshair. */
-function updatePointing(
-  overlays: CardOverlay[],
-  camera: THREE.Camera,
-  sheetOpen: boolean
-): InfoCard | null {
-  const center = new THREE.Vector2(0, 0);
-  const projected = new THREE.Vector3();
-  let closest: { id: string; distance: number } | null = null;
-
-  for (const overlay of overlays) {
-    overlay.markerObject.getWorldPosition(projected);
-    projected.project(camera);
-
-    // Skip anchors behind the camera.
-    if (projected.z > 1) continue;
-
-    const distance = center.distanceTo(new THREE.Vector2(projected.x, projected.y));
-    if (distance < POINT_THRESHOLD && (!closest || distance < closest.distance)) {
-      closest = { id: overlay.card.id, distance };
-    }
-  }
-
-  const nextActive = closest?.id ?? null;
-
-  for (const overlay of overlays) {
-    const isActive = overlay.card.id === nextActive;
-    overlay.markerObject.visible = !sheetOpen;
-    overlay.marker.classList.toggle("ar-card__marker--active", isActive && !sheetOpen);
-    overlay.panel.classList.toggle("ar-card__panel--visible", isActive && !sheetOpen);
-  }
-
-  return overlays.find((overlay) => overlay.card.id === nextActive)?.card ?? null;
-}
-
-interface ActiveCardTracker {
-  handleActiveCard: (activeCard: InfoCard | null) => void;
-  resetSheetTimer: () => void;
-}
-
-interface CardDetailSheet {
-  show: (card: InfoCard) => void;
-  dismiss: () => void;
-  dismissFromHistory: () => void;
-  isOpen: () => boolean;
-  getCardId: () => string | null;
-}
-
-function buildCardContentHtml(card: InfoCard): string {
-  return `
-    <strong class="ar-card__title">${escapeHtml(card.title)}</strong>
-    ${card.companyName ? `<span class="ar-card__company">${escapeHtml(card.companyName)}</span>` : ""}
-    ${card.address ? `<span class="ar-card__address">${escapeHtml(card.address)}</span>` : ""}
-    ${card.imageUrl ? `<img class="ar-card__image" src="${escapeAttr(card.imageUrl)}" alt="" />` : ""}
-    <p class="ar-card__body">${escapeHtml(card.body)}</p>
-    ${card.linkUrl ? `<a class="ar-card__link" href="${escapeAttr(card.linkUrl)}" target="_blank" rel="noopener noreferrer">Learn more</a>` : ""}
-  `;
-}
-
-function createCardDetailSheet(
-  backdrop: HTMLElement,
-  sheet: HTMLElement,
-  content: HTMLElement,
-  callbacks: { onOpen: () => void; onDismiss: () => void }
-): CardDetailSheet {
-  let open = false;
-  let cardId: string | null = null;
-  let historyPushed = false;
-  let dragStartY = 0;
-  let dragOffset = 0;
-  let dragPointerId: number | null = null;
-  let dragMode: "pending" | "sheet" | "scroll" = "pending";
-
-  const clearSheetTransform = (): void => {
-    sheet.style.removeProperty("transform");
-  };
-
-  const setSheetDragOffset = (offsetPx: number): void => {
-    sheet.style.transform = `translateY(${offsetPx}px)`;
-  };
-
-  const resetDrag = (): void => {
-    dragPointerId = null;
-    dragOffset = 0;
-    dragMode = "pending";
-  };
-
-  const showSheet = (): void => {
-    backdrop.hidden = false;
-    sheet.hidden = false;
-    backdrop.setAttribute("aria-hidden", "false");
-    sheet.setAttribute("aria-hidden", "false");
-    clearSheetTransform();
-    requestAnimationFrame(() => {
-      backdrop.classList.add("ar-sheet-backdrop--visible");
-      sheet.classList.add("ar-sheet--visible");
-      sheet.classList.remove("ar-sheet--dragging");
-    });
-  };
-
-  const hideSheet = (): void => {
-    backdrop.classList.remove("ar-sheet-backdrop--visible");
-    sheet.classList.remove("ar-sheet--visible", "ar-sheet--dragging");
-    clearSheetTransform();
-    backdrop.setAttribute("aria-hidden", "true");
-    sheet.setAttribute("aria-hidden", "true");
-    window.setTimeout(() => {
-      if (!open) {
-        backdrop.hidden = true;
-        sheet.hidden = true;
-      }
-    }, 300);
-  };
-
-  const dismissInternal = (fromHistory: boolean): void => {
-    if (!open) return;
-    open = false;
-    cardId = null;
-    hideSheet();
-    if (!fromHistory && historyPushed) {
-      historyPushed = false;
-      history.back();
-    } else if (fromHistory) {
-      historyPushed = false;
-    }
-    callbacks.onDismiss();
-  };
-
-  backdrop.addEventListener("click", () => dismissInternal(false));
-
-  const onPointerDown = (event: PointerEvent): void => {
-    if (!open) return;
-    if (event.target instanceof Element && event.target.closest("a")) return;
-
-    dragPointerId = event.pointerId;
-    dragStartY = event.clientY;
-    dragOffset = 0;
-    dragMode = "pending";
-  };
-
-  const onPointerMove = (event: PointerEvent): void => {
-    if (!open || dragPointerId !== event.pointerId) return;
-
-    const dy = event.clientY - dragStartY;
-
-    if (dragMode === "pending") {
-      if (Math.abs(dy) < SHEET_DRAG_START_PX) return;
-      if (dy > 0 && content.scrollTop <= 0) {
-        dragMode = "sheet";
-        sheet.classList.add("ar-sheet--dragging");
-        sheet.setPointerCapture(event.pointerId);
-      } else {
-        dragMode = "scroll";
-        resetDrag();
-        return;
-      }
-    }
-
-    if (dragMode === "sheet") {
-      event.preventDefault();
-      dragOffset = Math.max(0, dy);
-      setSheetDragOffset(dragOffset);
-    }
-  };
-
-  const onPointerUp = (event: PointerEvent): void => {
-    if (dragPointerId !== event.pointerId) return;
-
-    if (dragMode === "sheet") {
-      sheet.releasePointerCapture(event.pointerId);
-      if (dragOffset >= SHEET_SWIPE_DISMISS_PX) {
-        resetDrag();
-        sheet.classList.remove("ar-sheet--dragging");
-        dismissInternal(false);
-        return;
-      }
-      sheet.classList.remove("ar-sheet--dragging");
-      clearSheetTransform();
-    }
-
-    resetDrag();
-  };
-
-  sheet.addEventListener("pointerdown", onPointerDown);
-  sheet.addEventListener("pointermove", onPointerMove, { passive: false });
-  sheet.addEventListener("pointerup", onPointerUp);
-  sheet.addEventListener("pointercancel", onPointerUp);
-
-  return {
-    show(card: InfoCard): void {
-      if (open && cardId === card.id) return;
-      cardId = card.id;
-      open = true;
-      content.innerHTML = buildCardContentHtml(card);
-      if (!historyPushed) {
-        history.pushState({ arSheet: true }, "");
-        historyPushed = true;
-      }
-      callbacks.onOpen();
-      showSheet();
-    },
-    dismiss(): void {
-      dismissInternal(false);
-    },
-    dismissFromHistory(): void {
-      dismissInternal(true);
-    },
-    isOpen(): boolean {
-      return open;
-    },
-    getCardId(): string | null {
-      return cardId;
-    },
-  };
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function escapeAttr(value: string): string {
-  return escapeHtml(value).replaceAll("'", "&#39;");
 }
 
 function isLandscapeOrientation(): boolean {

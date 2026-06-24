@@ -1,3 +1,16 @@
+@import url("https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap");
+
+.admin,
+.admin *,
+.admin *::before,
+.admin *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
 .admin {
   min-height: 100vh;
   height: 100dvh;
@@ -8,6 +21,7 @@
   flex-direction: column;
   overflow: hidden;
   overscroll-behavior: none;
+  font-family: "Work Sans", Helvetica, Arial, Lucida, sans-serif;
 }
 
 html:has(.admin:not(.admin--login)),
@@ -41,11 +55,17 @@ body:has(.admin:not(.admin--login)) {
 .admin-form input,
 .admin-form textarea {
   width: 100%;
+  max-width: 100%;
   margin-top: 0.35rem;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 0.65rem 0.75rem;
   font: inherit;
+}
+
+.admin-form textarea[name="body"] {
+  resize: vertical;
+  min-height: calc(4 * 1lh + 1.3rem + 2px);
 }
 
 .admin-login button,
@@ -80,13 +100,37 @@ body:has(.admin:not(.admin--login)) {
 }
 
 .admin-header {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   gap: 1rem;
-  align-items: flex-start;
+  align-items: center;
   margin-bottom: 1rem;
-  font-family: 'Work Sans',Helvetica,Arial,Lucida,sans-serif;
   font-weight: 600;
+}
+
+.admin-header__brand {
+  justify-self: start;
+  min-width: 0;
+}
+
+.admin-header__nav {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  justify-self: center;
+}
+
+.admin-header__nav .admin-badge {
+  margin-left: 0.35rem;
+}
+
+.admin-header__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  justify-self: end;
 }
 
 .admin-header p {
@@ -102,12 +146,6 @@ body:has(.admin:not(.admin--login)) {
   max-width: 100%;
 }
 
-.admin-header__actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
 .admin-link {
   color: #666666;
   text-decoration: none;
@@ -120,11 +158,16 @@ body:has(.admin:not(.admin--login)) {
 
 .admin-layout {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 1fr 320px;
   gap: 1rem;
   flex: 1;
   min-height: 0;
+  min-width: 0;
   align-items: stretch;
+}
+
+.admin-layout > * {
+  min-width: 0;
 }
 
 .admin-sidebar {
@@ -135,7 +178,17 @@ body:has(.admin:not(.admin--login)) {
   overflow: hidden;
 }
 
+.admin-panel--sidebar-placeholder {
+  flex: 1;
+  min-height: 0;
+}
+
+.admin-panel--sidebar-placeholder[hidden] {
+  display: none;
+}
+
 .admin-scroll {
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -173,46 +226,82 @@ body:has(.admin:not(.admin--login)) {
   gap: 0.65rem;
 }
 
-.admin-submission {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 0.65rem;
-  display: grid;
-  gap: 0.55rem;
-}
-
-.admin-submission__body {
-  display: grid;
-  gap: 0.15rem;
-}
-
-.admin-submission__body strong {
-  font-size: 0.92rem;
-}
-
-.admin-submission__body span {
-  font-size: 0.8rem;
-  color: #64748b;
-}
-
-.admin-submission__actions {
-  display: flex;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-}
-
 .admin-panel--submissions {
-  max-height: 320px;
-  overflow: auto;
-  flex-shrink: 0;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  padding-bottom: 1.5rem;
-  scroll-padding-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.admin-panel--submissions::-webkit-scrollbar {
+.admin-panel--submissions[hidden] {
   display: none;
+}
+
+.submission-detail {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 42rem;
+}
+
+.submission-detail__head {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.submission-detail__head h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.submission-detail__fields {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0;
+}
+
+.submission-detail__field {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.submission-detail__field dt {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.submission-detail__field dd {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.submission-detail__field dd a {
+  color: #0f766e;
+  word-break: break-all;
+}
+
+.submission-detail__body {
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.submission-detail__image {
+  display: block;
+  margin-top: 0.5rem;
+  max-width: 100%;
+  max-height: 280px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  object-fit: contain;
+}
+
+.submission-detail__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .admin-panel--cards,
@@ -222,7 +311,11 @@ body:has(.admin:not(.admin--login)) {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  margin-bottom: 2em;
+}
+
+.admin-panel--cards[hidden],
+.admin-panel--calibration-list[hidden] {
+  display: none;
 }
 
 .admin-panel--editor {
@@ -230,7 +323,6 @@ body:has(.admin:not(.admin--login)) {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  margin-bottom: 2rem;
 }
 
 .admin-panel__body {
@@ -303,11 +395,38 @@ body:has(.admin:not(.admin--login)) {
 .admin-form {
   display: grid;
   gap: 0.75rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .admin-form label {
   display: block;
   font-size: 0.9rem;
+  min-width: 0;
+}
+
+.admin-form__address-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.35rem;
+  min-width: 0;
+}
+
+.admin-form__address-row input {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.admin-form__address-row .admin-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.admin-form__geocode-result {
+  display: block;
+  margin-top: -0.35rem;
 }
 
 .admin-form__row,
@@ -337,7 +456,7 @@ body:has(.admin:not(.admin--login)) {
   position: relative;
   width: 100%;
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #e2e8f0;
   background: #e2e8f0;
   min-height: 120px;
@@ -347,6 +466,7 @@ body:has(.admin:not(.admin--login)) {
   display: block;
   width: 100%;
   height: auto;
+  border-radius: 12px;
 }
 
 .map-editor__missing {
@@ -387,20 +507,78 @@ body:has(.admin:not(.admin--login)) {
   cursor: grabbing;
 }
 
+.map-editor__pin--preview:not(.map-editor__pin--selected) {
+  transform: scale(1.2);
+  background: #059669;
+}
+
+.map-editor__preview-host {
+  position: absolute;
+  z-index: 3;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.map-editor__preview {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  width: min(72vw, 260px);
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(8, 18, 36, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f4f7fb;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+  pointer-events: auto;
+}
+
+.map-editor__preview .ar-card__title {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.map-editor__preview .ar-card__company {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: #93c5fd;
+}
+
+.map-editor__preview .ar-card__address {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+.map-editor__preview .ar-card__image {
+  display: block;
+  width: 100%;
+  margin-top: 0.45rem;
+  border-radius: 8px;
+}
+
+.map-editor__preview .ar-card__body {
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.map-editor__preview .ar-card__link {
+  display: inline-block;
+  margin-top: 0.45rem;
+  color: #60a5fa;
+  font-size: 0.78rem;
+}
+
 .map-editor__pin--calibration {
   background: #991e72;
 }
 
 .map-editor__pin--calibration.map-editor__pin--selected {
   background: #c2410c;
-}
-
-.admin-panel__mode-toggles {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-  margin-bottom: 0.75rem;
 }
 
 .admin-btn--active {
@@ -414,12 +592,6 @@ body:has(.admin:not(.admin--login)) {
 
 .admin-panel--editor .admin-panel__body[hidden] {
   display: none;
-}
-
-.calibration {
-  margin-top: 1rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid #e2e8f0;
 }
 
 .calibration h3 {
@@ -442,7 +614,13 @@ body:has(.admin:not(.admin--login)) {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin-bottom: 0.75rem;
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.calibration__msg {
+  margin: 0.75rem 0;
+  min-height: 1.25rem;
 }
 
 .calibration__add input {
@@ -452,6 +630,10 @@ body:has(.admin:not(.admin--login)) {
   border-radius: 8px;
   padding: 0.65rem 0.75rem;
   font: inherit;
+}
+
+.calibration__add .admin-btn {
+  flex-shrink: 0;
 }
 
 .calibration__list {
@@ -500,17 +682,9 @@ body:has(.admin:not(.admin--login)) {
   font-size: 1.1rem;
 }
 
-.calibration__actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 0.75rem;
-}
-
 @media (max-width: 900px) {
   .admin-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) minmax(0, 2fr);
+    grid-template-rows: minmax(0, 2fr) minmax(0, 1fr);
   }
 }

@@ -1,0 +1,3 @@
+# SPA fallback for production. Static assets in dist shadow this rule; /api/*
+# is handled by Netlify Functions before redirects run.
+/*    /index.html   200
