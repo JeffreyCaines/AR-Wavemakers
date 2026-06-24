@@ -18,12 +18,37 @@ import {
 } from "./viewerShared";
 
 const ORIENTATION_STORAGE_KEY = "ar_preview_orientation";
-const CAMERA_DISTANCE = 1.5;
-const PITCH_LIMIT = THREE.MathUtils.degToRad(30);
+const MAP_DISTANCE = 0.85;
+const DRAG_SENSITIVITY = 0.002;
+const MARKER_SIZE_PX = 18;
+/** Hit radius = 1.25× dot diameter, measured from crosshair to marker center. */
+const POINT_TARGET_RADIUS_PX = (MARKER_SIZE_PX * 1.25) / 2;
 
 type SimOrientation = "portrait" | "landscape";
 
+let pullToRefreshPrevented = false;
+
+function enableArPreviewPullToRefreshGuard(): void {
+  if (pullToRefreshPrevented) return;
+  pullToRefreshPrevented = true;
+  document.documentElement.classList.add("ar-preview-active");
+  document.addEventListener("touchmove", preventArPreviewPullToRefresh, { passive: false });
+}
+
+function isScrollableSheetTouch(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  const sheetBody = target.closest(".ar-sheet__body");
+  if (!(sheetBody instanceof HTMLElement)) return false;
+  return sheetBody.scrollHeight > sheetBody.clientHeight;
+}
+
+function preventArPreviewPullToRefresh(event: TouchEvent): void {
+  if (isScrollableSheetTouch(event.target)) return;
+  event.preventDefault();
+}
+
 export function initArSimViewer(root: HTMLElement): void {
+  enableArPreviewPullToRefreshGuard();
   if (!getAdminToken()) {
     renderAdminLogin(root, {
       title: "AR Preview",
@@ -115,6 +140,8 @@ function renderSimViewer(root: HTMLElement): void {
 
   let cameraYaw = 0;
   let cameraPitch = 0;
+  let maxCameraYaw = Math.PI / 4;
+  let maxCameraPitch = Math.PI / 4;
   let dragPointerId: number | null = null;
   let dragStartX = 0;
   let dragStartY = 0;
@@ -140,13 +167,18 @@ function renderSimViewer(root: HTMLElement): void {
     cssRenderer.setSize(width, height);
   }
 
-  function updateCameraPosition(): void {
+  function updateCameraView(): void {
     if (!camera) return;
-    const x = CAMERA_DISTANCE * Math.sin(cameraYaw) * Math.cos(cameraPitch);
-    const y = CAMERA_DISTANCE * Math.sin(cameraPitch);
-    const z = CAMERA_DISTANCE * Math.cos(cameraYaw) * Math.cos(cameraPitch);
-    camera.position.set(x, y, z);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(0, 0, 0);
+    const targetX = Math.tan(cameraYaw) * MAP_DISTANCE;
+    const targetY = -Math.tan(cameraPitch) * MAP_DISTANCE;
+    camera.lookAt(targetX, targetY, -MAP_DISTANCE);
+  }
+
+  function updateViewLimits(mapHeight: number): void {
+    const margin = 1.15;
+    maxCameraYaw = Math.atan((0.5 * margin) / MAP_DISTANCE);
+    maxCameraPitch = Math.atan((mapHeight * 0.5 * margin) / MAP_DISTANCE);
   }
 
   const onPointerDown = (event: PointerEvent): void => {
@@ -163,9 +195,14 @@ function renderSimViewer(root: HTMLElement): void {
     if (dragPointerId !== event.pointerId) return;
     const dx = event.clientX - dragStartX;
     const dy = event.clientY - dragStartY;
-    cameraYaw = dragStartYaw - dx * 0.005;
-    cameraPitch = THREE.MathUtils.clamp(dragStartPitch + dy * 0.005, -PITCH_LIMIT, PITCH_LIMIT);
-    updateCameraPosition();
+    cameraYaw = dragStartYaw - dx * DRAG_SENSITIVITY;
+    cameraPitch = THREE.MathUtils.clamp(
+      dragStartPitch - dy * DRAG_SENSITIVITY,
+      -maxCameraPitch,
+      maxCameraPitch
+    );
+    cameraYaw = THREE.MathUtils.clamp(cameraYaw, -maxCameraYaw, maxCameraYaw);
+    updateCameraView();
   };
 
   const onPointerUp = (event: PointerEvent): void => {
@@ -199,7 +236,6 @@ function renderSimViewer(root: HTMLElement): void {
   async function initScene(cards: InfoCard[]): Promise<void> {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(60, 1, 0.01, 100);
-    updateCameraPosition();
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -211,9 +247,12 @@ function renderSimViewer(root: HTMLElement): void {
 
     const texture = await loadTexture(MAP_REFERENCE_PATH);
     const mapHeight = 1 / aspectRatio;
+    updateViewLimits(mapHeight);
+
     const mapGeometry = new THREE.PlaneGeometry(1, mapHeight);
     const mapMaterial = new THREE.MeshBasicMaterial({ map: texture });
     const mapMesh = new THREE.Mesh(mapGeometry, mapMaterial);
+    mapMesh.position.set(0, 0, -MAP_DISTANCE);
     scene.add(mapMesh);
 
     const anchorGroup = new THREE.Group();
@@ -227,12 +266,17 @@ function renderSimViewer(root: HTMLElement): void {
 
     activeCardTracker = createActiveCardTracker(detailSheet);
 
+    updateCameraView();
     onResize();
 
     const render = (): void => {
       if (!renderer || !cssRenderer || !scene || !camera) return;
       updateTrackingUI(statusEl, true);
-      const activeCard = updatePointing(overlays, camera, detailSheet.isOpen());
+      const activeCard = updatePointing(overlays, camera, detailSheet.isOpen(), {
+        thresholdPx: POINT_TARGET_RADIUS_PX,
+        viewportWidth: container.clientWidth,
+        viewportHeight: container.clientHeight,
+      });
       activeCardTracker?.handleActiveCard(activeCard);
       cssRenderer.render(scene, camera);
       renderer.render(scene, camera);

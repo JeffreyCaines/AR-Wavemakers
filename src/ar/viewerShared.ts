@@ -69,15 +69,29 @@ export function updateTrackingUI(statusEl: HTMLElement, tracking: boolean): void
   }
 }
 
-/** Project each card to screen space and expand the one nearest the crosshair. */
+export interface PointingOptions {
+  /** Max crosshair-to-marker distance in CSS pixels (sim preview). */
+  thresholdPx?: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
+}
+
 export function updatePointing(
   overlays: CardOverlay[],
   camera: THREE.Camera,
-  sheetOpen: boolean
+  sheetOpen: boolean,
+  options?: PointingOptions
 ): InfoCard | null {
   const center = new THREE.Vector2(0, 0);
   const projected = new THREE.Vector3();
   let closest: { id: string; distance: number } | null = null;
+  const usePixelThreshold =
+    options?.thresholdPx !== undefined &&
+    options.viewportWidth !== undefined &&
+    options.viewportHeight !== undefined &&
+    options.viewportWidth > 0 &&
+    options.viewportHeight > 0;
+  const threshold = usePixelThreshold ? options!.thresholdPx! : POINT_THRESHOLD;
 
   for (const overlay of overlays) {
     overlay.markerObject.getWorldPosition(projected);
@@ -85,8 +99,13 @@ export function updatePointing(
 
     if (projected.z > 1) continue;
 
-    const distance = center.distanceTo(new THREE.Vector2(projected.x, projected.y));
-    if (distance < POINT_THRESHOLD && (!closest || distance < closest.distance)) {
+    const distance = usePixelThreshold
+      ? Math.hypot(
+          projected.x * (options!.viewportWidth! / 2),
+          projected.y * (options!.viewportHeight! / 2)
+        )
+      : center.distanceTo(new THREE.Vector2(projected.x, projected.y));
+    if (distance < threshold && (!closest || distance < closest.distance)) {
       closest = { id: overlay.card.id, distance };
     }
   }

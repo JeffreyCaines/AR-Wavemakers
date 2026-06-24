@@ -8,6 +8,20 @@
   color: #f4f7fb;
   overflow: hidden;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  touch-action: none;
+}
+
+html.ar-preview-active,
+html.ar-preview-active body {
+  overscroll-behavior: none;
+  overflow: hidden;
+  height: var(--app-height, 100dvh);
+  width: 100%;
+}
+
+html.ar-preview-active body {
+  position: fixed;
+  inset: 0;
 }
 
 .ar-sim__chrome {
@@ -61,6 +75,19 @@
   padding: 0 1rem 1rem;
 }
 
+.ar-sim:has(.ar-sim-device--landscape) .ar-sim__hint {
+  display: none;
+}
+
+.ar-sim:has(.ar-sim-device--landscape) .ar-sim__stage {
+  padding: 0 0.5rem 0.5rem;
+}
+
+.ar-sim:has(.ar-sim-device--landscape) .ar-sim__chrome {
+  max-width: none;
+  padding: 0.5rem 1rem;
+}
+
 .ar-sim-device {
   position: relative;
   border: 3px solid rgba(255, 255, 255, 0.2);
@@ -81,9 +108,10 @@
 }
 
 .ar-sim-device--landscape {
-  width: min(844px, 100%);
-  height: min(390px, calc(100vh - 7rem));
-  aspect-ratio: 844 / 390;
+  width: min(98vw, calc((100vh - 3.5rem) * 16 / 9));
+  height: min(calc(100vh - 3.5rem), calc(98vw * 9 / 16));
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
 }
 
 .ar-sim-device .ar-app {
@@ -117,4 +145,43 @@
 .ar-sim-device .ar-sheet {
   height: 60%;
   max-height: 60%;
+  transform: translateY(100%);
+  touch-action: none;
+}
+
+.ar-sim-device .ar-sheet__body {
+  touch-action: pan-y;
+}
+
+.ar-sim-device .ar-sheet--visible {
+  transform: translateY(0);
+}
+
+/* Keep bottom-sheet dismiss behavior in sim landscape; don't use mobile full-screen sheet. */
+.ar-sim-device .ar-app--landscape .ar-sheet {
+  inset: auto;
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 55%;
+  max-height: 55%;
+  border-radius: 16px 16px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: none;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.ar-sim-device .ar-app--landscape .ar-sheet--visible {
+  transform: translateY(0);
+}
+
+.ar-sim-device .ar-app--landscape .ar-sheet-backdrop--visible {
+  opacity: 1;
+}
+
+.ar-sim-device .ar-app--landscape .ar-sheet__body {
+  padding: 1rem 1.25rem 1.25rem;
 }

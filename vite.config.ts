@@ -17,6 +17,9 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    allowedHosts: [
+      "skid-hypocrite-uphold.ngrok-free.dev",
+    ],
   },
   build: {
     // The AR route legitimately ships MindAR (TensorFlow.js + Three.js), which is

@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "compile-target": "node scripts/compile-target.mjs",
-    "netlify:dev": "netlify dev"
+    "netlify:dev": "node scripts/netlify-dev.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^8.2.0",
