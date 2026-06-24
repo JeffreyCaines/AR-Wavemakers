@@ -1,5 +1,5 @@
 import { geocodeAddress, saveCalibration } from "../shared/api";
-import { describeProjection, latLngToMapXY } from "../shared/geo";
+import { describeProjection, latLngToMapXY, mapXYAdminToOriginal, mapXYOriginalToAdmin } from "../shared/geo";
 import type { CalibrationPoint } from "../shared/types";
 import { createMapEditor } from "./mapEditor";
 
@@ -8,15 +8,19 @@ export interface CalibrationPanelCallbacks {
 }
 
 export function createCalibrationPanel(
-  container: HTMLElement,
+  listHost: HTMLElement,
+  mainHost: HTMLElement,
   initialPoints: CalibrationPoint[],
   callbacks: CalibrationPanelCallbacks
-): { getPoints: () => CalibrationPoint[]; destroy: () => void } {
+): { getPoints: () => CalibrationPoint[]; refreshMap: () => void; destroy: () => void } {
   let points = [...initialPoints];
   let selectedId: string | null = points[0]?.id ?? null;
   let mapEditor: ReturnType<typeof createMapEditor> | null = null;
 
-  container.innerHTML = `
+  listHost.innerHTML = `<ul class="calibration__list"></ul>`;
+  const listEl = listHost.querySelector(".calibration__list") as HTMLUListElement;
+
+  mainHost.innerHTML = `
     <div class="calibration">
       <div class="calibration__head">
         <h3>Map calibration</h3>
@@ -31,7 +35,6 @@ export function createCalibrationPanel(
         <input type="text" id="calibration-address" placeholder="City, Country" />
         <button type="button" id="calibration-add-btn" class="admin-btn admin-btn--ghost">Add point</button>
       </div>
-      <ul id="calibration-list" class="calibration__list"></ul>
       <div id="calibration-map-host" class="admin-map-host"></div>
       <div class="calibration__actions">
         <button type="button" id="calibration-save-btn" class="admin-btn">Save calibration</button>
@@ -40,13 +43,12 @@ export function createCalibrationPanel(
     </div>
   `;
 
-  const statusEl = container.querySelector("#calibration-status") as HTMLElement;
-  const listEl = container.querySelector("#calibration-list") as HTMLUListElement;
-  const mapHost = container.querySelector("#calibration-map-host") as HTMLElement;
-  const addressInput = container.querySelector("#calibration-address") as HTMLInputElement;
-  const addBtn = container.querySelector("#calibration-add-btn") as HTMLButtonElement;
-  const saveBtn = container.querySelector("#calibration-save-btn") as HTMLButtonElement;
-  const msgEl = container.querySelector("#calibration-msg") as HTMLElement;
+  const statusEl = mainHost.querySelector("#calibration-status") as HTMLElement;
+  const mapHost = mainHost.querySelector("#calibration-map-host") as HTMLElement;
+  const addressInput = mainHost.querySelector("#calibration-address") as HTMLInputElement;
+  const addBtn = mainHost.querySelector("#calibration-add-btn") as HTMLButtonElement;
+  const saveBtn = mainHost.querySelector("#calibration-save-btn") as HTMLButtonElement;
+  const msgEl = mainHost.querySelector("#calibration-msg") as HTMLElement;
 
   const refreshStatus = (): void => {
     statusEl.textContent = describeProjection(points);
@@ -100,6 +102,8 @@ export function createCalibrationPanel(
         pins: points.map((p) => ({ id: p.id, label: p.label, mapX: p.mapX, mapY: p.mapY })),
         selectedId,
         pinClass: "map-editor__pin--calibration",
+        toDisplayCoords: mapXYOriginalToAdmin,
+        fromDisplayCoords: mapXYAdminToOriginal,
       },
       {
         onPinMove(mapX, mapY) {
@@ -176,6 +180,7 @@ export function createCalibrationPanel(
 
   return {
     getPoints: () => points,
+    refreshMap,
     destroy: () => {
       mapEditor?.destroy();
     },

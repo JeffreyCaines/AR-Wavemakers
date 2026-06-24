@@ -140,7 +140,6 @@ body:has(.admin:not(.admin--login)) {
   overscroll-behavior: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  padding-bottom: 1rem;
 }
 
 .admin-scroll::-webkit-scrollbar {
@@ -208,20 +207,22 @@ body:has(.admin:not(.admin--login)) {
   flex-shrink: 0;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  scroll-padding-bottom: 1rem;
+  padding-bottom: 1.5rem;
+  scroll-padding-bottom: 1.5rem;
 }
 
 .admin-panel--submissions::-webkit-scrollbar {
   display: none;
 }
 
-.admin-panel--cards {
+.admin-panel--cards,
+.admin-panel--calibration-list {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding-bottom: 0;
+  margin-bottom: 2em;
 }
 
 .admin-panel--editor {
@@ -229,7 +230,7 @@ body:has(.admin:not(.admin--login)) {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  padding-bottom: 0;
+  margin-bottom: 2rem;
 }
 
 .admin-panel__body {
@@ -394,8 +395,25 @@ body:has(.admin:not(.admin--login)) {
   background: #c2410c;
 }
 
-.admin-calibrate-toggle {
-  margin-top: 0.75rem;
+.admin-panel__mode-toggles {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  margin-bottom: 0.75rem;
+}
+
+.admin-btn--active {
+  background: #74c8cb;
+  color: #fff;
+}
+
+.admin-btn--active:hover {
+  color: #fff;
+}
+
+.admin-panel--editor .admin-panel__body[hidden] {
+  display: none;
 }
 
 .calibration {

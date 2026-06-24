@@ -15,7 +15,7 @@ import {
   updateCard,
   verifyAdminPassword,
 } from "../shared/api";
-import { buildProjection, describeProjection, projectLatLng, type Projection } from "../shared/geo";
+import { buildProjection, describeProjection, mapXYAdminToOriginal, mapXYOriginalToAdmin, projectLatLng, type Projection } from "../shared/geo";
 import type { CalibrationPoint, InfoCard, StorySubmission } from "../shared/types";
 import { createCalibrationPanel } from "./calibrationPanel";
 import { createMapEditor } from "./mapEditor";
@@ -126,33 +126,44 @@ function renderDashboard(root: HTMLElement): void {
               <ul id="card-list" class="admin-card-list"></ul>
             </div>
           </section>
+          <section class="admin-panel admin-panel--calibration-list" id="calibration-sidebar-panel" hidden>
+            <div class="admin-panel__head">
+              <h2>Calibration points</h2>
+            </div>
+            <div class="admin-scroll admin-panel__body" id="calibration-list-host"></div>
+          </section>
         </div>
         <section class="admin-panel admin-panel--editor">
-          <h2 id="form-title">Edit card</h2>
-          <div class="admin-scroll admin-panel__body">
-          <form id="card-form" class="admin-form">
-            <label>Title<input name="title" required /></label>
-            <label>Company<input name="companyName" /></label>
-            <label>Impact story<textarea name="body" rows="4" required></textarea></label>
-            <label>Address<input name="address" placeholder="City, Country" /></label>
-            <div class="admin-form__row">
-              <button type="button" id="geocode-btn" class="admin-btn admin-btn--ghost">Geocode address</button>
-              <span id="geocode-result" class="admin-muted"></span>
-            </div>
-            <small class="admin-attribution">Geocoding &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</small>
-            <label>Image URL<input name="imageUrl" type="url" placeholder="https://…" /></label>
-            <label>Link URL<input name="linkUrl" type="url" placeholder="https://…" /></label>
-            <label class="admin-checkbox"><input name="active" type="checkbox" checked /> Active</label>
-            <div class="admin-form__actions">
-              <button type="submit" class="admin-btn">Save</button>
-              <button type="button" id="delete-btn" class="admin-btn admin-btn--danger" hidden>Delete</button>
-            </div>
-            <p id="form-error" class="admin-error" hidden></p>
-          </form>
-          <div id="map-editor-host" class="admin-map-host"></div>
-          <p id="geocode-hint" class="admin-muted">Drag the selected (green) pin to fine-tune placement on the map.</p>
-          <button type="button" id="calibrate-toggle-btn" class="admin-btn admin-btn--ghost admin-calibrate-toggle" aria-expanded="false">Calibrate Map</button>
-          <div id="calibration-host" hidden></div>
+          <div class="admin-panel__mode-toggles">
+            <button type="button" id="edit-cards-toggle-btn" class="admin-btn admin-btn--ghost" aria-expanded="false">Edit cards</button>
+            <button type="button" id="calibrate-toggle-btn" class="admin-btn admin-btn--ghost" aria-expanded="false">Calibrate map</button>
+          </div>
+          <div id="edit-cards-section" class="admin-scroll admin-panel__body" hidden>
+            <h2 id="form-title">Edit card</h2>
+            <form id="card-form" class="admin-form">
+              <label>Title<input name="title" required /></label>
+              <label>Company<input name="companyName" /></label>
+              <label>Impact story<textarea name="body" rows="4" required></textarea></label>
+              <label>Address<input name="address" placeholder="City, Country" /></label>
+              <div class="admin-form__row">
+                <button type="button" id="geocode-btn" class="admin-btn admin-btn--ghost">Geocode address</button>
+                <span id="geocode-result" class="admin-muted"></span>
+              </div>
+              <small class="admin-attribution">Geocoding &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</small>
+              <label>Image URL<input name="imageUrl" type="url" placeholder="https://…" /></label>
+              <label>Link URL<input name="linkUrl" type="url" placeholder="https://…" /></label>
+              <label class="admin-checkbox"><input name="active" type="checkbox" checked /> Active</label>
+              <div class="admin-form__actions">
+                <button type="submit" class="admin-btn">Save</button>
+                <button type="button" id="delete-btn" class="admin-btn admin-btn--danger" hidden>Delete</button>
+              </div>
+              <p id="form-error" class="admin-error" hidden></p>
+            </form>
+            <div id="map-editor-host" class="admin-map-host"></div>
+            <p id="geocode-hint" class="admin-muted">Drag the selected (green) pin to fine-tune placement on the map.</p>
+          </div>
+          <div id="calibration-section" class="admin-scroll admin-panel__body" hidden>
+            <div id="calibration-host"></div>
           </div>
         </section>
       </div>
@@ -192,6 +203,8 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   let formState = emptyForm();
   let mapEditor: ReturnType<typeof createMapEditor> | null = null;
   let calibrationPanel: ReturnType<typeof createCalibrationPanel> | null = null;
+  type EditorPanel = "edit" | "calibrate";
+  let activePanel: EditorPanel | null = null;
 
   const listEl = root.querySelector("#card-list") as HTMLUListElement;
   const submissionListEl = root.querySelector("#submission-list") as HTMLUListElement;
@@ -201,16 +214,46 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   const formError = root.querySelector("#form-error") as HTMLElement;
   const geocodeResult = root.querySelector("#geocode-result") as HTMLElement;
   const geocodeHint = root.querySelector("#geocode-hint") as HTMLElement;
+  const editCardsSection = root.querySelector("#edit-cards-section") as HTMLElement;
+  const calibrationSection = root.querySelector("#calibration-section") as HTMLElement;
   const calibrationHost = root.querySelector("#calibration-host") as HTMLElement;
+  const editCardsToggleBtn = root.querySelector("#edit-cards-toggle-btn") as HTMLButtonElement;
   const calibrateToggleBtn = root.querySelector("#calibrate-toggle-btn") as HTMLButtonElement;
+  const cardsSidebarPanel = root.querySelector(".admin-panel--cards") as HTMLElement;
+  const calibrationSidebarPanel = root.querySelector("#calibration-sidebar-panel") as HTMLElement;
+  const calibrationListHost = root.querySelector("#calibration-list-host") as HTMLElement;
   const mapHost = root.querySelector("#map-editor-host") as HTMLElement;
   const deleteBtn = root.querySelector("#delete-btn") as HTMLButtonElement;
 
-  calibrateToggleBtn.addEventListener("click", () => {
-    const open = calibrationHost.hidden;
-    calibrationHost.hidden = !open;
-    calibrateToggleBtn.setAttribute("aria-expanded", String(open));
-  });
+  const updateSidebarForMode = (): void => {
+    const showCalibrationList = activePanel === "calibrate";
+    cardsSidebarPanel.hidden = showCalibrationList;
+    calibrationSidebarPanel.hidden = !showCalibrationList;
+  };
+
+  const updatePanelVisibility = (): void => {
+    editCardsSection.hidden = activePanel !== "edit";
+    calibrationSection.hidden = activePanel !== "calibrate";
+    editCardsToggleBtn.setAttribute("aria-expanded", String(activePanel === "edit"));
+    calibrateToggleBtn.setAttribute("aria-expanded", String(activePanel === "calibrate"));
+    editCardsToggleBtn.classList.toggle("admin-btn--active", activePanel === "edit");
+    calibrateToggleBtn.classList.toggle("admin-btn--active", activePanel === "calibrate");
+    updateSidebarForMode();
+
+    if (activePanel === "edit") {
+      refreshMapEditor();
+    } else if (activePanel === "calibrate") {
+      calibrationPanel?.refreshMap();
+    }
+  };
+
+  const togglePanel = (panel: EditorPanel): void => {
+    activePanel = activePanel === panel ? null : panel;
+    updatePanelVisibility();
+  };
+
+  editCardsToggleBtn.addEventListener("click", () => togglePanel("edit"));
+  calibrateToggleBtn.addEventListener("click", () => togglePanel("calibrate"));
 
   const applyCalibration = (points: CalibrationPoint[]): void => {
     calibrationPoints = points;
@@ -218,12 +261,12 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     geocodeHint.textContent =
       points.length >= 2
         ? `${describeProjection(points)} Drag the green pin to fine-tune if needed.`
-        : "Open Calibrate Map and add at least 2 points for accurate geocoding. Until then, placement is approximate — drag the pin manually.";
+        : "Open Calibrate map and add at least 2 points for accurate geocoding. Until then, placement is approximate — drag the pin manually.";
   };
 
   const mountCalibrationPanel = (): void => {
     calibrationPanel?.destroy();
-    calibrationPanel = createCalibrationPanel(calibrationHost, calibrationPoints, {
+    calibrationPanel = createCalibrationPanel(calibrationListHost, calibrationHost, calibrationPoints, {
       onChange(points) {
         applyCalibration(points);
       },
@@ -250,7 +293,9 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
       return;
     }
     renderList();
-    refreshMapEditor();
+    if (activePanel === "edit") {
+      refreshMapEditor();
+    }
   };
 
   const renderSubmissions = (): void => {
@@ -348,7 +393,9 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     formTitle.textContent = "Edit card";
     fillForm(form, formState);
     renderList();
-    refreshMapEditor();
+    if (activePanel === "edit") {
+      refreshMapEditor();
+    }
   };
 
   const renderList = (): void => {
@@ -385,7 +432,9 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     geocodeResult.textContent = "";
     fillForm(form, formState);
     renderList();
-    refreshMapEditor();
+    if (activePanel === "edit") {
+      refreshMapEditor();
+    }
   };
 
   const refreshMapEditor = (): void => {
@@ -396,6 +445,8 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
         pins: cards.map((c) => ({ id: c.id, label: c.title, mapX: c.mapX, mapY: c.mapY })),
         selectedId,
         draftPosition: selectedId ? undefined : { mapX: formState.mapX, mapY: formState.mapY },
+        toDisplayCoords: mapXYOriginalToAdmin,
+        fromDisplayCoords: mapXYAdminToOriginal,
       },
       {
         onPinMove(mapX, mapY) {
@@ -414,7 +465,9 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     geocodeResult.textContent = "";
     fillForm(form, formState);
     renderList();
-    refreshMapEditor();
+    if (activePanel === "edit") {
+      refreshMapEditor();
+    }
   });
 
   root.querySelector("#geocode-btn")?.addEventListener("click", async () => {

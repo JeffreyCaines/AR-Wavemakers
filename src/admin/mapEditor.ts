@@ -1,4 +1,4 @@
-import { MAP_REFERENCE_PATH } from "../shared/types";
+import { MAP_ADMIN_REFERENCE_PATH } from "../shared/types";
 
 export interface PinDatum {
   id: string;
@@ -17,6 +17,11 @@ export interface MapEditorOptions {
   draftPosition?: { mapX: number; mapY: number };
   /** Extra CSS class on each pin (e.g. calibration vs card pins). */
   pinClass?: string;
+  imagePath?: string;
+  /** Convert stored coords to the displayed image space. Defaults to identity. */
+  toDisplayCoords?: (mapX: number, mapY: number) => { mapX: number; mapY: number };
+  /** Convert displayed image coords back to stored space. Defaults to identity. */
+  fromDisplayCoords?: (mapX: number, mapY: number) => { mapX: number; mapY: number };
 }
 
 export function createMapEditor(
@@ -28,13 +33,21 @@ export function createMapEditor(
   getSelectedPinPosition: () => { mapX: number; mapY: number } | null;
   destroy: () => void;
 } {
-  const { pins, selectedId, draftPosition, pinClass } = options;
+  const {
+    pins,
+    selectedId,
+    draftPosition,
+    pinClass,
+    imagePath = MAP_ADMIN_REFERENCE_PATH,
+    toDisplayCoords = (mapX, mapY) => ({ mapX, mapY }),
+    fromDisplayCoords = (mapX, mapY) => ({ mapX, mapY }),
+  } = options;
 
   container.innerHTML = `
     <div class="map-editor">
-      <img src="${MAP_REFERENCE_PATH}" alt="Map reference" class="map-editor__image" draggable="false" />
+      <img src="${imagePath}" alt="Map reference" class="map-editor__image" draggable="false" />
       <div class="map-editor__missing" hidden>
-        Add <code>public/map-reference.jpg</code> to place pins visually.
+        Add <code>public/map-reference - cropped.jpg</code> to place pins visually.
       </div>
       <div class="map-editor__pins"></div>
     </div>
@@ -56,13 +69,15 @@ export function createMapEditor(
 
     for (const pinDatum of pins) {
       const pin = createPin(pinDatum.id, pinDatum.label, pinDatum.id === selectedId);
-      positionPin(pin, pinDatum.mapX, pinDatum.mapY);
+      const display = toDisplayCoords(pinDatum.mapX, pinDatum.mapY);
+      positionPin(pin, display.mapX, display.mapY);
       pinsLayer.appendChild(pin);
     }
 
     if (!selectedId && draftPosition) {
       selectedPin = createPin("draft", "New location", true);
-      positionPin(selectedPin, draftPosition.mapX, draftPosition.mapY);
+      const display = toDisplayCoords(draftPosition.mapX, draftPosition.mapY);
+      positionPin(selectedPin, display.mapX, display.mapY);
       pinsLayer.appendChild(selectedPin);
     }
   }
@@ -109,7 +124,8 @@ export function createMapEditor(
     const coords = pointerToMapXY(event);
     if (!coords) return;
     positionPin(selectedPin, coords.mapX, coords.mapY);
-    callbacks.onPinMove(coords.mapX, coords.mapY);
+    const stored = fromDisplayCoords(coords.mapX, coords.mapY);
+    callbacks.onPinMove(stored.mapX, stored.mapY);
   };
 
   const stopDrag = (): void => {
@@ -125,14 +141,16 @@ export function createMapEditor(
 
   return {
     setSelectedPin(mapX: number, mapY: number): void {
-      if (selectedPin) positionPin(selectedPin, mapX, mapY);
+      if (!selectedPin) return;
+      const display = toDisplayCoords(mapX, mapY);
+      positionPin(selectedPin, display.mapX, display.mapY);
     },
     getSelectedPinPosition(): { mapX: number; mapY: number } | null {
       if (!selectedPin) return null;
-      const mapX = parseFloat(selectedPin.style.left) / 100;
-      const mapY = parseFloat(selectedPin.style.top) / 100;
-      if (!Number.isFinite(mapX) || !Number.isFinite(mapY)) return null;
-      return { mapX, mapY };
+      const displayX = parseFloat(selectedPin.style.left) / 100;
+      const displayY = parseFloat(selectedPin.style.top) / 100;
+      if (!Number.isFinite(displayX) || !Number.isFinite(displayY)) return null;
+      return fromDisplayCoords(displayX, displayY);
     },
     destroy(): void {
       pinsLayer.removeEventListener("pointerdown", onPointerDown);

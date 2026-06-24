@@ -1,4 +1,25 @@
 import type { CalibrationPoint } from "./types";
+import { MAP_ADMIN_CROP } from "./types";
+
+/** Map coords stored in the DB are relative to the full AR reference photo. */
+export function mapXYOriginalToAdmin(mapX: number, mapY: number): { mapX: number; mapY: number } {
+  const px = mapX * MAP_ADMIN_CROP.originalWidth;
+  const py = mapY * MAP_ADMIN_CROP.originalHeight;
+  return {
+    mapX: clamp((px - MAP_ADMIN_CROP.x) / MAP_ADMIN_CROP.width, 0, 1),
+    mapY: clamp((py - MAP_ADMIN_CROP.y) / MAP_ADMIN_CROP.height, 0, 1),
+  };
+}
+
+/** Convert admin pin coords back to the full AR reference photo space. */
+export function mapXYAdminToOriginal(mapX: number, mapY: number): { mapX: number; mapY: number } {
+  const px = mapX * MAP_ADMIN_CROP.width + MAP_ADMIN_CROP.x;
+  const py = mapY * MAP_ADMIN_CROP.height + MAP_ADMIN_CROP.y;
+  return {
+    mapX: clamp(px / MAP_ADMIN_CROP.originalWidth, 0, 1),
+    mapY: clamp(py / MAP_ADMIN_CROP.originalHeight, 0, 1),
+  };
+}
 
 /** Equirectangular projection: lat/lng to normalized map coordinates (0–1, top-left origin). */
 export function latLngToMapXY(lat: number, lng: number): { mapX: number; mapY: number } {

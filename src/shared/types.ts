@@ -51,8 +51,20 @@ export interface CalibrationPoint {
 }
 
 export const MAP_REFERENCE_PATH = "/map-reference.jpg";
+/** Admin pin editor uses the tighter crop of the wall photo (not the AR tracking image). */
+export const MAP_ADMIN_REFERENCE_PATH = "/map-reference%20-%20cropped.jpg";
 export const MAP_TARGET_PATH = "/map-target.mind";
 export const DEFAULT_MAP_ASPECT_RATIO = 1.5;
+
+/** Pixel crop of `map-reference - cropped.jpg` within `map-reference.jpg`. */
+export const MAP_ADMIN_CROP = {
+  originalWidth: 4032,
+  originalHeight: 3024,
+  x: 313,
+  y: 830,
+  width: 3345,
+  height: 1696,
+} as const;
 
 export const SEED_CARDS: InfoCard[] = [
   {
