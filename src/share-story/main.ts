@@ -13,7 +13,7 @@ function renderShareStoryTopBar(): string {
           <img src="${techNlLogoUrl}" alt="techNL" class="admin-header__logo">
         </a>
       </div>
-      <a href="/" class="admin-link share-story__back">&larr; Back to map</a>
+      <a href="/" class="admin-link share-story__back">← Back to map</a>
     </header>
   `;
 }
@@ -116,7 +116,8 @@ function showSuccess(root: HTMLElement): void {
 
   inner.innerHTML = `
     ${renderShareStoryTopBar()}
-    <section class="admin-panel share-story__panel">      <h2>Thank you!</h2>
+    <section class="admin-panel share-story__panel">
+      <h2>Thank you!</h2>
       <p class="admin-muted">
         Your story has been sent to our team for review. Once approved, it will be placed on the
         map for visitors to discover in AR.

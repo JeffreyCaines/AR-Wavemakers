@@ -29,7 +29,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: "index.html",
-        // shareStory: "share-story.html",
+        shareStory: "share-story.html",
       },
     },
   },
