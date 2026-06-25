@@ -73,7 +73,7 @@ function renderDashboard(root: HTMLElement): void {
       </header>
       <div class="admin-layout">
         <section class="admin-panel admin-panel--editor">
-          <div id="edit-cards-section" class="admin-scroll admin-panel__body" hidden>
+          <div id="edit-cards-section" class="admin-panel__body edit-cards-section" hidden>
             <h2 id="form-title">Edit card</h2>
             <form id="card-form" class="admin-form">
               <label>Title<input name="title" required /></label>
@@ -100,7 +100,7 @@ function renderDashboard(root: HTMLElement): void {
             <div id="map-editor-host" class="admin-map-host"></div>
             <p id="geocode-hint" class="admin-muted">Drag the selected (green) pin to fine-tune placement on the map.</p>
           </div>
-          <div id="calibration-section" class="admin-scroll admin-panel__body" hidden>
+          <div id="calibration-section" class="admin-panel__body calibration-section" hidden>
             <div id="calibration-host"></div>
           </div>
           <div id="submissions-section" class="admin-scroll admin-panel__body" hidden>
@@ -146,23 +146,7 @@ function renderDashboard(root: HTMLElement): void {
     });
   });
 
-  lockNativeScroll(root.querySelector(".admin") as HTMLElement);
   void setupDashboard(root);
-}
-
-function lockNativeScroll(container: HTMLElement): void {
-  const allowScroll = (target: EventTarget | null): boolean => {
-    if (!(target instanceof Element)) return false;
-    return Boolean(target.closest(".admin-scroll"));
-  };
-
-  const blockNativeScroll = (event: Event): void => {
-    if (allowScroll(event.target)) return;
-    event.preventDefault();
-  };
-
-  container.addEventListener("wheel", blockNativeScroll, { passive: false });
-  container.addEventListener("touchmove", blockNativeScroll, { passive: false });
 }
 
 async function setupDashboard(root: HTMLElement): Promise<void> {
