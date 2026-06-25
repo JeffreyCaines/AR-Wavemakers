@@ -4,8 +4,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: #0a1628;
-  color: #f4f7fb;
+  background: #f3f6fb;
+  color: #0f172a;
   overflow: hidden;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   touch-action: none;
@@ -32,30 +32,6 @@ html.ar-preview-active body {
   max-width: 960px;
   padding: 0.75rem 1rem;
   flex-shrink: 0;
-}
-
-.ar-sim__back {
-  color: #93c5fd;
-  text-decoration: none;
-  font-size: 0.9rem;
-}
-
-.ar-sim__back:hover {
-  text-decoration: underline;
-}
-
-.ar-sim__orientation-toggle {
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 999px;
-  padding: 0.45rem 0.85rem;
-  background: rgba(255, 255, 255, 0.08);
-  color: #f4f7fb;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.ar-sim__orientation-toggle:hover {
-  background: rgba(255, 255, 255, 0.14);
 }
 
 .ar-sim__hint {
@@ -90,11 +66,11 @@ html.ar-preview-active body {
 
 .ar-sim-device {
   position: relative;
-  border: 3px solid rgba(255, 255, 255, 0.2);
+  border: 3px solid rgba(15, 23, 42, 0.18);
   border-radius: 24px;
   box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.4),
-    0 20px 60px rgba(0, 0, 0, 0.55);
+    0 0 0 1px rgba(15, 23, 42, 0.08),
+    0 20px 60px rgba(15, 23, 42, 0.15);
   overflow: hidden;
   background: #000;
   max-width: 100%;
@@ -167,9 +143,9 @@ html.ar-preview-active body {
   height: 55%;
   max-height: 55%;
   border-radius: 16px 16px 0 0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(15, 23, 42, 0.12);
   border-bottom: none;
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 -8px 32px rgba(15, 23, 42, 0.12);
   padding-top: 0;
   padding-bottom: 0;
 }

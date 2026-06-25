@@ -22,21 +22,23 @@ export function createCalibrationPanel(
 
   mainHost.innerHTML = `
     <div class="calibration">
-      <div class="calibration__add">
-        <button type="button" id="calibration-add-btn" class="admin-btn admin-btn--ghost">Add point</button>
-        <input type="text" id="calibration-address" placeholder="City, Country" />
-        <button type="button" id="calibration-save-btn" class="admin-btn">Save calibration</button>
+      <div class="calibration__chrome">
+        <div class="calibration__add">
+          <button type="button" id="calibration-add-btn" class="admin-btn--pill">Add point</button>
+          <input type="text" id="calibration-address" placeholder="City, Country" />
+          <button type="button" id="calibration-save-btn" class="admin-btn--pill">Save calibration</button>
+        </div>
+        <div class="calibration__head">
+         <p id="calibration-status" class="admin-muted"></p> 
+        </div>
+        <p id="calibration-help" class="calibration__help">
+          This map is artistic and does not match real-world geography. Add at least
+          <strong>two</strong> cities you can identify on the wall map, drag each pin
+          to its true spot, then save. Future geocoding uses that fit.
+        </p>
+        <p id="calibration-msg" class="calibration__msg admin-muted" hidden></p>
       </div>
-      <div class="calibration__head">
-       <p id="calibration-status" class="admin-muted"></p> 
-      </div>
-      <p id="calibration-help" class="calibration__help">
-        This map is artistic and does not match real-world geography. Add at least
-        <strong>two</strong> cities you can identify on the wall map, drag each pin
-        to its true spot, then save. Future geocoding uses that fit.
-      </p>
-      <p id="calibration-msg" class="calibration__msg admin-muted" hidden></p>
-      <div id="calibration-map-host" class="admin-map-host"></div>
+      <div id="calibration-map-host" class="admin-map-host admin-scroll"></div>
     </div>
   `;
 
@@ -156,7 +158,7 @@ export function createCalibrationPanel(
       selectedId = point.id;
       addressInput.value = "";
       setAddressPlaceholder();
-      showSaveMessage("Drag the orange pin to the correct spot on the map, then save.");
+      showSaveMessage("Drag the teal pin to the correct spot on the map, then save.");
       refreshList();
       refreshMap();
       refreshStatus();

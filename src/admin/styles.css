@@ -16,7 +16,7 @@ body {
   height: 100dvh;
   background: #f3f6fb;
   color: #0f172a;
-  padding: 1rem;
+  padding: 0rem 0.5rem 0.5rem 0.5rem;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -24,8 +24,8 @@ body {
   font-family: "Work Sans", Helvetica, Arial, Lucida, sans-serif;
 }
 
-html:has(.admin:not(.admin--login)),
-body:has(.admin:not(.admin--login)) {
+html:has(.admin:not(.admin--login):not(.admin--share-story)),
+body:has(.admin:not(.admin--login):not(.admin--share-story)) {
   overflow: hidden;
   height: 100%;
 }
@@ -33,6 +33,18 @@ body:has(.admin:not(.admin--login)) {
 .admin--login {
   display: grid;
   place-items: center;
+}
+
+.admin--share-story {
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+html:has(.admin--share-story),
+body:has(.admin--share-story) {
+  overflow: hidden;
+  height: 100%;
 }
 
 .admin-login {
@@ -113,6 +125,42 @@ body:has(.admin:not(.admin--login)) {
   min-width: 0;
 }
 
+.logo_container {
+  height: 80px;
+}
+
+.logo_container a {
+  display: inline-block;
+  height: 100%;
+  text-decoration: none;
+}
+
+.logo_helper {
+  display: inline-block;
+  height: 100%;
+  vertical-align: middle;
+  width: 0;
+}
+
+.admin-header__logo {
+  width: auto;
+  max-height: 54%;
+  max-width: 100%;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+@media (max-width: 980px) {
+  .logo_container {
+    width: 50vw;
+    flex: 0 0 auto;
+  }
+
+  .admin-header__logo {
+    max-width: 100%;
+  }
+}
+
 .admin-header__nav {
   display: flex;
   gap: 0.5rem;
@@ -139,11 +187,8 @@ body:has(.admin:not(.admin--login)) {
   font-size: 0.9rem;
 }
 
-.admin-header img {
-  display: block;
-  height: 4rem;
-  width: auto;
-  max-width: 100%;
+.admin-header__nav .admin-btn {
+  border-radius: 100px;
 }
 
 .admin-link {
@@ -154,6 +199,38 @@ body:has(.admin:not(.admin--login)) {
 
 .admin-link:hover {
   color: #949494;
+}
+
+.admin-btn--pill {
+  line-height: 1.7em;
+  font-weight: 600;
+  font-family: "Work Sans", Helvetica, Arial, Lucida, sans-serif;
+  text-decoration: none;
+  padding: 0.3em 35px;
+  display: inline-block;
+  color: #fff;
+  border-radius: 100px;
+  letter-spacing: 1px;
+  background-color: #6ac9cc;
+  border: 0;
+  cursor: pointer;
+}
+
+a.admin-btn--pill {
+  text-decoration: none;
+}
+
+button.admin-btn--pill {
+  appearance: none;
+}
+
+.admin-btn--pill:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.admin-btn--pill--purple {
+  background-color: #991e72;
 }
 
 .admin-layout {
@@ -168,6 +245,7 @@ body:has(.admin:not(.admin--login)) {
 
 .admin-layout > * {
   min-width: 0;
+  min-height: 0;
 }
 
 .admin-sidebar {
@@ -323,6 +401,10 @@ body:has(.admin:not(.admin--login)) {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  --admin-map-outer-radius: 16px;
+  --admin-map-outer-inset: 1rem;
+  --admin-map-border-width: 1px;
+  --admin-map-radius-host: calc(var(--admin-map-outer-radius) - var(--admin-map-outer-inset) / 2);
 }
 
 .admin-panel__body {
@@ -419,7 +501,7 @@ body:has(.admin:not(.admin--login)) {
   margin-top: 0;
 }
 
-.admin-form__address-row .admin-btn {
+.admin-form__address-row .admin-btn--pill {
   flex-shrink: 0;
   margin-left: auto;
 }
@@ -448,17 +530,56 @@ body:has(.admin:not(.admin--login)) {
   margin: 0;
 }
 
-.admin-map-host {
+/*
+ * Admin map corner radii (edit cards + calibrate map only).
+ * Outer reference: .admin-panel--editor (16px radius, 1rem padding).
+ * When outer radius minus inset would be <= 0, halve the inset each layer:
+ *   host: 16 - 8 = 8px, editor: 8 - 4 = 4px, image: 4 - 1px border = 3px.
+ */
+#map-editor-host,
+#calibration-map-host {
+  --admin-map-radius-editor: calc(var(--admin-map-radius-host) - var(--admin-map-outer-inset) / 4);
+  --admin-map-radius-image: max(
+    0px,
+    calc(var(--admin-map-radius-editor) - var(--admin-map-border-width))
+  );
+  border-radius: var(--admin-map-radius-host);
+}
+
+#map-editor-host {
   margin-top: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #f3f6fb;
+}
+
+#calibration-map-host {
+  min-height: 0;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #f3f6fb;
+}
+
+#calibration-map-host .map-editor__pins {
+  touch-action: pan-y;
+}
+
+#map-editor-host .map-editor,
+#calibration-map-host .map-editor {
+  border: 0;
+  background: transparent;
+}
+
+#calibration-map-host .map-editor__image,
+#calibration-map-host .map-editor__missing {
+  border-radius: 0;
 }
 
 .map-editor {
   position: relative;
   width: 100%;
-  border-radius: 12px;
   overflow: visible;
-  border: 1px solid #e2e8f0;
-  background: #e2e8f0;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #f3f6fb;
   min-height: 120px;
 }
 
@@ -466,7 +587,6 @@ body:has(.admin:not(.admin--login)) {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 12px;
 }
 
 .map-editor__missing {
@@ -495,21 +615,22 @@ body:has(.admin:not(.admin--login)) {
   margin: -9px 0 0 -9px;
   border-radius: 50%;
   border: 2px solid #fff;
-  background: #74c8cb;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25);
+  background: rgba(153, 30, 114, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   cursor: grab;
   padding: 0;
+  transition: transform 0.15s ease, background 0.15s ease;
 }
 
 .map-editor__pin--selected {
-  background: #059669;
-  transform: scale(1.2);
+  background: rgba(116, 200, 203, 0.95);
+  transform: scale(1.35);
   cursor: grabbing;
 }
 
 .map-editor__pin--preview:not(.map-editor__pin--selected) {
-  transform: scale(1.2);
-  background: #059669;
+  transform: scale(1.35);
+  background: rgba(116, 200, 203, 0.95);
 }
 
 .map-editor__preview-host {
@@ -527,10 +648,10 @@ body:has(.admin:not(.admin--login)) {
   width: min(72vw, 260px);
   padding: 0.75rem 0.85rem;
   border-radius: 12px;
-  background: rgba(8, 18, 36, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #f4f7fb;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   pointer-events: auto;
 }
 
@@ -543,7 +664,7 @@ body:has(.admin:not(.admin--login)) {
   display: block;
   margin-top: 0.15rem;
   font-size: 0.75rem;
-  color: #93c5fd;
+  color: #1d4ed8;
 }
 
 .map-editor__preview .ar-card__address {
@@ -569,16 +690,16 @@ body:has(.admin:not(.admin--login)) {
 .map-editor__preview .ar-card__link {
   display: inline-block;
   margin-top: 0.45rem;
-  color: #60a5fa;
+  color: #2563eb;
   font-size: 0.78rem;
 }
 
 .map-editor__pin--calibration {
-  background: #991e72;
+  background: rgba(153, 30, 114, 0.85);
 }
 
 .map-editor__pin--calibration.map-editor__pin--selected {
-  background: #c2410c;
+  background: rgba(116, 200, 203, 0.95);
 }
 
 .admin-btn--active {
@@ -594,13 +715,47 @@ body:has(.admin:not(.admin--login)) {
   display: none;
 }
 
+.edit-cards-section {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.calibration-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#calibration-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calibration {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calibration__chrome {
+  min-height: 0;
+}
+
 .calibration h3 {
   margin: 0;
   font-size: 1rem;
 }
 
+.calibration__add,
 .calibration__head {
-  margin-bottom: 0.5rem;
+  flex-shrink: 0;
 }
 
 .calibration__help {
@@ -608,6 +763,7 @@ body:has(.admin:not(.admin--login)) {
   font-size: 0.85rem;
   color: #64748b;
   line-height: 1.4;
+  flex-shrink: 0;
 }
 
 .calibration__add {
@@ -621,6 +777,7 @@ body:has(.admin:not(.admin--login)) {
 .calibration__msg {
   margin: 0.75rem 0;
   min-height: 1.25rem;
+  flex-shrink: 0;
 }
 
 .calibration__add input {
@@ -632,7 +789,7 @@ body:has(.admin:not(.admin--login)) {
   font: inherit;
 }
 
-.calibration__add .admin-btn {
+.calibration__add .admin-btn--pill {
   flex-shrink: 0;
 }
 
@@ -651,8 +808,8 @@ body:has(.admin:not(.admin--login)) {
 }
 
 .calibration__item--active .calibration__select {
-  border-color: #991e72;
-  background: #feedff;
+  border-color: #74c8cb;
+  background: #eff6ff;
 }
 
 .calibration__select {

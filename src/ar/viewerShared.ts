@@ -5,7 +5,7 @@ import { mapXYToAnchorPosition } from "../shared/geo";
 import type { InfoCard } from "../shared/types";
 
 export const POINT_THRESHOLD = 0.12;
-export const SHEET_OPEN_DELAY_MS = 1500;
+export const SHEET_OPEN_DELAY_MS = 2000;
 const SHEET_SWIPE_DISMISS_PX = 72;
 const SHEET_DRAG_START_PX = 8;
 

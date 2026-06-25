@@ -52,9 +52,10 @@ function renderDashboard(root: HTMLElement): void {
   root.innerHTML = `
     <div class="admin">
       <header class="admin-header">
-        <div class="admin-header__brand">
+        <div class="admin-header__brand logo_container">
           <a href="https://technl.ca/">
-          <img src="${techNlLogoUrl}" alt="techNL" class="admin-header__logo">
+            <span class="logo_helper" aria-hidden="true"></span>
+            <img src="${techNlLogoUrl}" alt="techNL" class="admin-header__logo">
           </a>
           <!-- <p>Place cards on the world map for the AR experience.</p> -->
         </div>
@@ -68,12 +69,12 @@ function renderDashboard(root: HTMLElement): void {
         <div class="admin-header__actions">
           <a href="/share-story.html" class="admin-link">Share story form</a>
           <a href="/ar-preview" class="admin-link">Open AR Viewer</a>
-          <button type="button" id="logout-btn" class="admin-btn admin-btn--ghost">Sign out</button>
+          <button type="button" id="logout-btn" class="admin-btn--pill">Sign out</button>
         </div>
       </header>
       <div class="admin-layout">
         <section class="admin-panel admin-panel--editor">
-          <div id="edit-cards-section" class="admin-scroll admin-panel__body" hidden>
+          <div id="edit-cards-section" class="admin-scroll admin-panel__body edit-cards-section" hidden>
             <h2 id="form-title">Edit card</h2>
             <form id="card-form" class="admin-form">
               <label>Title<input name="title" required /></label>
@@ -83,7 +84,7 @@ function renderDashboard(root: HTMLElement): void {
                 Address
                 <span class="admin-form__address-row">
                   <input name="address" placeholder="City, Country" />
-                  <button type="button" id="geocode-btn" class="admin-btn admin-btn--ghost">Geocode address</button>
+                  <button type="button" id="geocode-btn" class="admin-btn--pill">Geocode address</button>
                 </span>
               </label>
               <span id="geocode-result" class="admin-muted admin-form__geocode-result"></span>
@@ -92,15 +93,15 @@ function renderDashboard(root: HTMLElement): void {
               <label>Link URL<input name="linkUrl" type="url" placeholder="https://…" /></label>
               <label class="admin-checkbox"><input name="active" type="checkbox" checked /> Active</label>
               <div class="admin-form__actions">
-                <button type="submit" class="admin-btn">Save</button>
-                <button type="button" id="delete-btn" class="admin-btn admin-btn--danger" hidden>Delete</button>
+                <button type="submit" class="admin-btn--pill">Save</button>
+                <button type="button" id="delete-btn" class="admin-btn--pill admin-btn--pill--purple" hidden>Delete</button>
               </div>
               <p id="form-error" class="admin-error" hidden></p>
             </form>
+            <p id="geocode-hint" class="admin-muted">Drag the selected (teal) pin to fine-tune placement on the map.</p>
             <div id="map-editor-host" class="admin-map-host"></div>
-            <p id="geocode-hint" class="admin-muted">Drag the selected (green) pin to fine-tune placement on the map.</p>
           </div>
-          <div id="calibration-section" class="admin-scroll admin-panel__body" hidden>
+          <div id="calibration-section" class="admin-panel__body calibration-section" hidden>
             <div id="calibration-host"></div>
           </div>
           <div id="submissions-section" class="admin-scroll admin-panel__body" hidden>
@@ -120,7 +121,7 @@ function renderDashboard(root: HTMLElement): void {
           <section class="admin-panel admin-panel--cards" hidden>
             <div class="admin-panel__head">
               <h2>Cards</h2>
-              <button type="button" id="new-card-btn" class="admin-btn">New card</button>
+              <button type="button" id="new-card-btn" class="admin-btn--pill">New card</button>
             </div>
             <div class="admin-scroll admin-panel__body">
               <ul id="card-list" class="admin-card-list"></ul>
@@ -276,7 +277,7 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     projection = buildProjection(points);
     geocodeHint.textContent =
       points.length >= 2
-        ? `${describeProjection(points)} Drag the green pin to fine-tune if needed.`
+        ? `${describeProjection(points)} Drag the teal pin to fine-tune if needed.`
         : "Open Calibrate map and add at least 2 points for accurate geocoding. Until then, placement is approximate — drag the pin manually.";
   };
 
@@ -429,8 +430,8 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
           }
         </dl>
         <div class="submission-detail__actions">
-          <button type="button" id="submission-approve-btn" class="admin-btn">Approve</button>
-          <button type="button" id="submission-reject-btn" class="admin-btn admin-btn--ghost">Reject</button>
+          <button type="button" id="submission-approve-btn" class="admin-btn--pill">Approve</button>
+          <button type="button" id="submission-reject-btn" class="admin-btn--pill admin-btn--pill--purple">Reject</button>
         </div>
         <p id="submission-detail-error" class="admin-error" hidden></p>
       </article>

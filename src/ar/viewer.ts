@@ -16,6 +16,7 @@ import {
 } from "./viewerShared";
 
 export function initArViewer(root: HTMLElement): void {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#f3f6fb");
   root.innerHTML = `
     <div class="ar-app">
       <div id="ar-container" class="ar-container"></div>

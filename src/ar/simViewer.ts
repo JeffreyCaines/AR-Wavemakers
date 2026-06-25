@@ -1,5 +1,6 @@
 import "./styles.css";
 import "./simViewer.css";
+import "../admin/styles.css";
 import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { renderAdminLogin } from "../admin/login";
@@ -48,6 +49,7 @@ function preventArPreviewPullToRefresh(event: TouchEvent): void {
 }
 
 export function initArSimViewer(root: HTMLElement): void {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#f3f6fb");
   enableArPreviewPullToRefreshGuard();
   if (!getAdminToken()) {
     renderAdminLogin(root, {
@@ -66,8 +68,8 @@ function renderSimViewer(root: HTMLElement): void {
   root.innerHTML = `
     <div class="ar-sim">
       <div class="ar-sim__chrome">
-        <a href="/admin" class="ar-sim__back">← Back to admin</a>
-        <button type="button" id="ar-sim-orientation-toggle" class="ar-sim__orientation-toggle" aria-pressed="false">
+        <a href="/admin" class="admin-btn--pill">← Back to admin</a>
+        <button type="button" id="ar-sim-orientation-toggle" class="admin-btn--pill" aria-pressed="false">
           Switch to landscape
         </button>
       </div>
@@ -79,7 +81,6 @@ function renderSimViewer(root: HTMLElement): void {
             <div class="ar-ui">
               <div class="ar-instructions">
                 <header class="ar-header ar-header--compact">
-                  <h1>NL World Map AR</h1>
                   <p class="ar-subtitle">Desktop preview</p>
                 </header>
                 <div id="ar-status" class="ar-status ar-status--tracking">Loading…</div>
