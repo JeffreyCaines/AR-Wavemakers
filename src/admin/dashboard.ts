@@ -74,31 +74,33 @@ function renderDashboard(root: HTMLElement): void {
       </header>
       <div class="admin-layout">
         <section class="admin-panel admin-panel--editor">
-          <div id="edit-cards-section" class="admin-scroll admin-panel__body edit-cards-section" hidden>
-            <h2 id="form-title">Edit card</h2>
-            <form id="card-form" class="admin-form">
-              <label>Title<input name="title" required /></label>
-              <label>Company<input name="companyName" /></label>
-              <label>Impact story<textarea name="body" rows="4" required></textarea></label>
-              <label class="admin-form__address">
-                Address
-                <span class="admin-form__address-row">
-                  <input name="address" placeholder="City, Country" />
-                  <button type="button" id="geocode-btn" class="admin-btn--pill">Geocode address</button>
-                </span>
-              </label>
-              <span id="geocode-result" class="admin-muted admin-form__geocode-result"></span>
-              <small class="admin-attribution">Geocoding &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</small>
-              <label>Image URL<input name="imageUrl" type="url" placeholder="https://…" /></label>
-              <label>Link URL<input name="linkUrl" type="url" placeholder="https://…" /></label>
-              <label class="admin-checkbox"><input name="active" type="checkbox" checked /> Active</label>
-              <div class="admin-form__actions">
-                <button type="submit" class="admin-btn--pill">Save</button>
-                <button type="button" id="delete-btn" class="admin-btn--pill admin-btn--pill--purple" hidden>Delete</button>
-              </div>
-              <p id="form-error" class="admin-error" hidden></p>
-            </form>
-            <div id="map-editor-host" class="admin-map-host"></div>
+          <div id="edit-cards-section" class="admin-panel__body edit-cards-section" hidden>
+            <div class="edit-cards-section__form admin-scroll">
+              <h2 id="form-title">Edit card</h2>
+              <form id="card-form" class="admin-form">
+                <label>Title<input name="title" required /></label>
+                <label>Company<input name="companyName" /></label>
+                <label>Impact story<textarea name="body" rows="4" required></textarea></label>
+                <label class="admin-form__address">
+                  Address
+                  <span class="admin-form__address-row">
+                    <input name="address" placeholder="City, Country" />
+                    <button type="button" id="geocode-btn" class="admin-btn--pill">Geocode address</button>
+                  </span>
+                </label>
+                <span id="geocode-result" class="admin-muted admin-form__geocode-result"></span>
+                <small class="admin-attribution">Geocoding &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</small>
+                <label>Image URL<input name="imageUrl" type="url" placeholder="https://…" /></label>
+                <label>Link URL<input name="linkUrl" type="url" placeholder="https://…" /></label>
+                <label class="admin-checkbox"><input name="active" type="checkbox" checked /> Active</label>
+                <div class="admin-form__actions">
+                  <button type="submit" class="admin-btn--pill">Save</button>
+                  <button type="button" id="delete-btn" class="admin-btn--pill admin-btn--pill--purple" hidden>Delete</button>
+                </div>
+                <p id="form-error" class="admin-error" hidden></p>
+              </form>
+            </div>
+            <div id="map-editor-host" class="admin-map-host edit-cards-section__map"></div>
           </div>
           <div id="calibration-section" class="admin-panel__body calibration-section" hidden>
             <div id="calibration-host"></div>

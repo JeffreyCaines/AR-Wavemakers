@@ -547,7 +547,6 @@ button.admin-btn--pill {
 }
 
 #map-editor-host {
-  margin-top: 1rem;
   overflow: hidden;
   border: 1px solid rgba(15, 23, 42, 0.12);
   background: #f3f6fb;
@@ -716,8 +715,48 @@ button.admin-btn--pill {
 }
 
 .edit-cards-section {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 1rem;
   flex: 1 1 0;
   min-height: 0;
+  overflow: hidden;
+}
+
+.edit-cards-section__form {
+  min-height: 0;
+  min-width: 0;
+}
+
+.edit-cards-section__form h2 {
+  margin-bottom: 0.75rem;
+}
+
+.edit-cards-section__map {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  min-width: 0;
+}
+
+#map-editor-host.edit-cards-section__map .map-editor {
+  position: relative;
+  line-height: 0;
+  width: max-content;
+  height: max-content;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: visible;
+}
+
+#map-editor-host.edit-cards-section__map .map-editor__image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .calibration-section {
@@ -837,6 +876,17 @@ button.admin-btn--pill {
   padding: 0.35rem 0.55rem;
   line-height: 1;
   font-size: 1.1rem;
+}
+
+@media (max-width: 1200px) {
+  .edit-cards-section {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, 42vh) minmax(0, 1fr);
+  }
+
+  .edit-cards-section__map {
+    order: -1;
+  }
 }
 
 @media (max-width: 900px) {
