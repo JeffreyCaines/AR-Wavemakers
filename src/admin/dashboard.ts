@@ -13,7 +13,7 @@ import {
   rejectSubmission,
   updateCard,
 } from "../shared/api";
-import { buildProjection, describeProjection, mapXYAdminToOriginal, mapXYOriginalToAdmin, projectLatLng, type Projection } from "../shared/geo";
+import { buildProjection, mapXYAdminToOriginal, mapXYOriginalToAdmin, projectLatLng, type Projection } from "../shared/geo";
 import type { CalibrationPoint, GeocodeResult, InfoCard, StorySubmission } from "../shared/types";
 import { createCalibrationPanel } from "./calibrationPanel";
 import { renderAdminLogin } from "./login";
@@ -98,7 +98,6 @@ function renderDashboard(root: HTMLElement): void {
               </div>
               <p id="form-error" class="admin-error" hidden></p>
             </form>
-            <p id="geocode-hint" class="admin-muted">Drag the selected (teal) pin to fine-tune placement on the map.</p>
             <div id="map-editor-host" class="admin-map-host"></div>
           </div>
           <div id="calibration-section" class="admin-panel__body calibration-section" hidden>
@@ -188,7 +187,6 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   const formTitle = root.querySelector("#form-title") as HTMLElement;
   const formError = root.querySelector("#form-error") as HTMLElement;
   const geocodeResult = root.querySelector("#geocode-result") as HTMLElement;
-  const geocodeHint = root.querySelector("#geocode-hint") as HTMLElement;
   const editCardsSection = root.querySelector("#edit-cards-section") as HTMLElement;
   const calibrationSection = root.querySelector("#calibration-section") as HTMLElement;
   const calibrationHost = root.querySelector("#calibration-host") as HTMLElement;
@@ -275,10 +273,6 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   const applyCalibration = (points: CalibrationPoint[]): void => {
     calibrationPoints = points;
     projection = buildProjection(points);
-    geocodeHint.textContent =
-      points.length >= 2
-        ? `${describeProjection(points)} Drag the teal pin to fine-tune if needed.`
-        : "Open Calibrate map and add at least 2 points for accurate geocoding. Until then, placement is approximate — drag the pin manually.";
   };
 
   const mountCalibrationPanel = (): void => {
