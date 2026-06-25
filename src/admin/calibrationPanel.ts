@@ -8,8 +8,8 @@ export interface CalibrationPanelCallbacks {
 }
 
 export function createCalibrationPanel(
-  listHost: HTMLElement,
-  mainHost: HTMLElement,
+  sideHost: HTMLElement,
+  mapHost: HTMLElement,
   initialPoints: CalibrationPoint[],
   callbacks: CalibrationPanelCallbacks
 ): { getPoints: () => CalibrationPoint[]; refreshMap: () => void; destroy: () => void } {
@@ -17,39 +17,38 @@ export function createCalibrationPanel(
   let selectedId: string | null = points[0]?.id ?? null;
   let mapEditor: ReturnType<typeof createMapEditor> | null = null;
 
-  listHost.innerHTML = `<ul class="calibration__list"></ul>`;
-  const listEl = listHost.querySelector(".calibration__list") as HTMLUListElement;
-
-  mainHost.innerHTML = `
-    <div class="calibration">
-      <div class="calibration__chrome">
-        <div class="calibration__add">
-          <button type="button" id="calibration-add-btn" class="admin-btn--pill">Add point</button>
-          <input type="text" id="calibration-address" placeholder="City, Country" />
-          <button type="button" id="calibration-save-btn" class="admin-btn--pill">Save calibration</button>
-        </div>
-        <div class="calibration__head">
-         <p id="calibration-status" class="admin-muted"></p> 
-        </div>
-        <p id="calibration-help" class="calibration__help">
-          This map is artistic and does not match real-world geography. Add at least
-          <strong>two</strong> cities you can identify on the wall map, drag each pin
-          to its true spot, then save. Future geocoding uses that fit.
-        </p>
-        <p id="calibration-msg" class="calibration__msg admin-muted" hidden></p>
+  sideHost.innerHTML = `
+    <div class="admin-form__scroll admin-scroll">
+      <p id="calibration-help" class="calibration__help">
+        This map is artistic and does not match real-world geography. Add at least
+        <strong>two</strong> cities you can identify on the wall map, drag each pin
+        to its true spot, then save. Future geocoding uses that fit.
+      </p>
+      <p id="calibration-status" class="admin-muted calibration__status"></p>
+      <div class="calibration__add">
+        <input type="text" id="calibration-address" placeholder="City, Country" />
+        <button type="button" id="calibration-add-btn" class="admin-btn--pill">Add point</button>
       </div>
-      <div id="calibration-map-host" class="admin-map-host admin-scroll"></div>
+      <p id="calibration-msg" class="calibration__msg admin-muted" hidden></p>
+      <ul class="calibration__list"></ul>
+    </div>
+    <div class="admin-form__footer">
+      <div class="admin-form__actions">
+        <button type="button" id="calibration-save-btn" class="admin-btn--pill">Save calibration</button>
+      </div>
     </div>
   `;
 
-  const statusEl = mainHost.querySelector("#calibration-status") as HTMLElement;
-  const mapHost = mainHost.querySelector("#calibration-map-host") as HTMLElement;
-  const addressInput = mainHost.querySelector("#calibration-address") as HTMLInputElement;
-  const addBtn = mainHost.querySelector("#calibration-add-btn") as HTMLButtonElement;
-  const saveBtn = mainHost.querySelector("#calibration-save-btn") as HTMLButtonElement;
-  const msgEl = mainHost.querySelector("#calibration-msg") as HTMLElement;
-  const helpEl = mainHost.querySelector("#calibration-help") as HTMLElement;
+  const listEl = sideHost.querySelector(".calibration__list") as HTMLUListElement;
+  const statusEl = sideHost.querySelector("#calibration-status") as HTMLElement;
+  const addressInput = sideHost.querySelector("#calibration-address") as HTMLInputElement;
+  const addBtn = sideHost.querySelector("#calibration-add-btn") as HTMLButtonElement;
+  const saveBtn = sideHost.querySelector("#calibration-save-btn") as HTMLButtonElement;
+  const msgEl = sideHost.querySelector("#calibration-msg") as HTMLElement;
+  const helpEl = sideHost.querySelector("#calibration-help") as HTMLElement;
   const defaultAddressPlaceholder = "City, Country";
+
+  mapHost.replaceChildren();
 
   const setAddressPlaceholder = (message?: string): void => {
     addressInput.placeholder = message

@@ -25,7 +25,15 @@ export interface MapEditorOptions {
   fromDisplayCoords?: (mapX: number, mapY: number) => { mapX: number; mapY: number };
   /** When set, hovering near a pin shows the AR-style card preview. */
   previewCards?: InfoCard[];
+  /** When false, the selected pin is not draggable (e.g. cards list is showing). */
+  allowSelectedPinDrag?: boolean;
 }
+
+const MIN_SCALE = 1;
+const MAX_SCALE = 6;
+const ZOOM_FACTOR = 1.1;
+const PREVIEW_GAP_SCREEN_PX = 12;
+const SAFE_ZONE_PAD_SCREEN_PX = 10;
 
 export function createMapEditor(
   container: HTMLElement,
@@ -34,6 +42,7 @@ export function createMapEditor(
 ): {
   setSelectedPin: (mapX: number, mapY: number) => void;
   getSelectedPinPosition: () => { mapX: number; mapY: number } | null;
+  showCardPreview: (cardId: string | null) => void;
   destroy: () => void;
 } {
   const {
@@ -45,31 +54,193 @@ export function createMapEditor(
     toDisplayCoords = (mapX, mapY) => ({ mapX, mapY }),
     fromDisplayCoords = (mapX, mapY) => ({ mapX, mapY }),
     previewCards,
+    allowSelectedPinDrag = false,
   } = options;
 
   container.innerHTML = `
     <div class="map-editor">
-      <img src="${imagePath}" alt="Map reference" class="map-editor__image" draggable="false" />
+      <div class="map-editor__viewport">
+        <div class="map-editor__stage">
+          <img src="${imagePath}" alt="Map reference" class="map-editor__image" draggable="false" />
+          <div class="map-editor__pins"></div>
+        </div>
+      </div>
       <div class="map-editor__missing" hidden>
         Add <code>public/map-reference - cropped.jpg</code> to place pins visually.
       </div>
-      <div class="map-editor__pins"></div>
     </div>
   `;
 
+  const mapEditor = container.querySelector(".map-editor") as HTMLElement;
+  const viewport = container.querySelector(".map-editor__viewport") as HTMLElement;
+  const stage = container.querySelector(".map-editor__stage") as HTMLElement;
   const image = container.querySelector(".map-editor__image") as HTMLImageElement;
   const missing = container.querySelector(".map-editor__missing") as HTMLElement;
   const pinsLayer = container.querySelector(".map-editor__pins") as HTMLElement;
+  const fitContainer =
+    (container.closest(".admin-layout") as HTMLElement | null) ??
+    (container.closest(".admin-canvas") as HTMLElement | null) ??
+    container;
+  const canvasSection = container.closest(".admin-canvas") as HTMLElement | null;
+
+  function getFitBounds(): { width: number; height: number } {
+    const canvas = canvasSection;
+    let padX = 0;
+    let padY = 0;
+    if (canvas) {
+      const canvasStyles = getComputedStyle(canvas);
+      padX = parseFloat(canvasStyles.paddingLeft) + parseFloat(canvasStyles.paddingRight);
+      padY = parseFloat(canvasStyles.paddingTop) + parseFloat(canvasStyles.paddingBottom);
+    }
+
+    const bounds = fitContainer.getBoundingClientRect();
+    const innerWidth = Math.max(1, bounds.width - padX);
+    const innerHeight = Math.max(1, bounds.height - padY);
+    const cardsPanel = (canvas ?? fitContainer).querySelector(".admin-canvas__cards") as HTMLElement | null;
+    const gap = 16;
+
+    if (!cardsPanel) {
+      return { width: innerWidth, height: innerHeight };
+    }
+
+    const row = (canvas ?? fitContainer).querySelector(".admin-canvas__row") as HTMLElement | null;
+    const stacked = row ? getComputedStyle(row).flexDirection === "column" : false;
+
+    if (stacked) {
+      const cardsHeight = cardsPanel.getBoundingClientRect().height;
+      return {
+        width: innerWidth,
+        height: Math.max(1, innerHeight - cardsHeight - gap),
+      };
+    }
+
+    const cardsWidth = cardsPanel.getBoundingClientRect().width || 320;
+    return {
+      width: Math.max(1, innerWidth - cardsWidth - gap),
+      height: innerHeight,
+    };
+  }
   let selectedPin: HTMLButtonElement | null = null;
   let previewHost: HTMLElement | null = null;
   let previewPanel: HTMLElement | null = null;
   let previewCardId: string | null = null;
+  let previewPlacement: "above" | "below" = "above";
   const previewEnabled = Boolean(previewCards?.length);
+
+  let scale = 1;
+  let translateX = 0;
+  let translateY = 0;
+  let stageWidth = 0;
+  let stageHeight = 0;
+  let dragging = false;
+  let panning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let panOriginX = 0;
+  let panOriginY = 0;
 
   image.addEventListener("error", () => {
     image.style.display = "none";
     missing.hidden = false;
   });
+
+  function measureStage(): void {
+    const previousTransform = stage.style.transform;
+    stage.style.transform = "none";
+
+    const nw = image.naturalWidth;
+    const nh = image.naturalHeight;
+    const { width: fitWidth, height: fitHeight } = getFitBounds();
+
+    if (nw > 0 && nh > 0 && fitWidth >= 1 && fitHeight >= 1) {
+      const fitScale = Math.min(fitWidth / nw, fitHeight / nh);
+      stageWidth = nw * fitScale;
+      stageHeight = nh * fitScale;
+      container.style.width = `${stageWidth}px`;
+      container.style.height = `${stageHeight}px`;
+      mapEditor.style.width = "100%";
+      mapEditor.style.height = "100%";
+      image.style.width = `${stageWidth}px`;
+      image.style.height = `${stageHeight}px`;
+    } else {
+      stageWidth = image.offsetWidth;
+      stageHeight = image.offsetHeight;
+    }
+
+    viewport.style.height = stageHeight > 0 ? `${stageHeight}px` : "";
+    stage.style.transform = previousTransform;
+
+    if (stageHeight > 0) {
+      const row = (canvasSection ?? fitContainer).querySelector(".admin-canvas__row") as HTMLElement | null;
+      const cardsPanel = (canvasSection ?? fitContainer).querySelector(".admin-canvas__cards") as HTMLElement | null;
+      if (row) row.style.height = `${stageHeight}px`;
+      if (cardsPanel) cardsPanel.style.height = `${stageHeight}px`;
+    }
+  }
+
+  function applyTransform(): void {
+    if (scale <= 1) {
+      scale = 1;
+      translateX = 0;
+      translateY = 0;
+      stage.style.transform = "translate3d(0px, 0px, 0) scale(1)";
+      applyZoomCompensation();
+      return;
+    }
+
+    for (let pass = 0; pass < 2; pass++) {
+      stage.style.transform = `translate3d(${translateX}px, ${translateY}px, 0) scale(${scale})`;
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const imageRect = image.getBoundingClientRect();
+      let adjusted = false;
+
+      if (imageRect.right < viewportRect.right - 0.5) {
+        translateX += viewportRect.right - imageRect.right;
+        adjusted = true;
+      }
+      if (imageRect.bottom < viewportRect.bottom - 0.5) {
+        translateY += viewportRect.bottom - imageRect.bottom;
+        adjusted = true;
+      }
+      if (imageRect.left > viewportRect.left + 0.5) {
+        translateX += viewportRect.left - imageRect.left;
+        adjusted = true;
+      }
+      if (imageRect.top > viewportRect.top + 0.5) {
+        translateY += viewportRect.top - imageRect.top;
+        adjusted = true;
+      }
+
+      if (!adjusted) break;
+    }
+
+    applyZoomCompensation();
+  }
+
+  function applyZoomCompensation(): void {
+    pinsLayer.style.setProperty("--map-editor-zoom-comp", String(1 / scale));
+    if (previewHost && previewCardId && !previewHost.hidden) {
+      const pin = pins.find((entry) => entry.id === previewCardId);
+      if (pin) {
+        const display = toDisplayCoords(pin.mapX, pin.mapY);
+        positionPreviewHost(display.mapX, display.mapY);
+      }
+    }
+  }
+
+  function updateStageMetrics(): void {
+    measureStage();
+    repositionAllPins();
+    applyTransform();
+  }
+
+  const resizeObserver = new ResizeObserver(() => {
+    updateStageMetrics();
+  });
+  resizeObserver.observe(fitContainer);
+
+  image.addEventListener("load", updateStageMetrics);
 
   function ensurePreviewLayer(): void {
     if (previewHost) return;
@@ -92,17 +263,67 @@ export function createMapEditor(
     if (!previewHost) return;
     previewHost.hidden = true;
     previewCardId = null;
+    previewPlacement = "above";
     setPreviewPinHighlight(null);
+  }
+
+  function positionPreviewHost(mapX: number, mapY: number): void {
+    if (!previewHost) return;
+
+    if (stageWidth > 0 && stageHeight > 0) {
+      previewHost.style.left = `${mapX * stageWidth}px`;
+      previewHost.style.top = `${mapY * stageHeight}px`;
+    } else {
+      previewHost.style.left = `${mapX * 100}%`;
+      previewHost.style.top = `${mapY * 100}%`;
+    }
+
+    const comp = 1 / scale;
+    const gapStage = PREVIEW_GAP_SCREEN_PX / scale;
+    const pinClearanceStage = 9 / scale;
+    const height = previewHost.offsetHeight;
+
+    previewPlacement = "above";
+    previewHost.style.transformOrigin = "50% 100%";
+    const offsetAbove = height > 0 ? -(height + gapStage) : -gapStage;
+    previewHost.style.transform = `translate(-50%, ${offsetAbove}px) scale(${comp})`;
+
+    const viewportRect = viewport.getBoundingClientRect();
+    let hostRect = previewHost.getBoundingClientRect();
+    if (hostRect.top < viewportRect.top + SAFE_ZONE_PAD_SCREEN_PX) {
+      previewPlacement = "below";
+      previewHost.style.transformOrigin = "50% 0%";
+      const offsetBelow = gapStage + pinClearanceStage;
+      previewHost.style.transform = `translate(-50%, ${offsetBelow}px) scale(${comp})`;
+    }
+
+    previewHost.dataset.placement = previewPlacement;
   }
 
   function showPreview(card: InfoCard, displayMapX: number, displayMapY: number): void {
     ensurePreviewLayer();
-    previewHost!.style.left = `${displayMapX * 100}%`;
-    previewHost!.style.top = `${displayMapY * 100}%`;
     previewPanel!.innerHTML = buildCardContentHtml(card);
     previewHost!.hidden = false;
+    positionPreviewHost(displayMapX, displayMapY);
     previewCardId = card.id;
     setPreviewPinHighlight(card.id);
+  }
+
+  function openCardPreview(cardId: string | null): void {
+    if (!cardId || !previewCards?.length) {
+      hidePreview();
+      return;
+    }
+
+    const card = previewCards.find((entry) => entry.id === cardId);
+    const pin = pins.find((entry) => entry.id === cardId);
+    if (!card || !pin) {
+      hidePreview();
+      return;
+    }
+
+    const display = toDisplayCoords(pin.mapX, pin.mapY);
+    showPreview(card, display.mapX, display.mapY);
   }
 
   function getPinElement(cardId: string): HTMLElement | null {
@@ -122,28 +343,47 @@ export function createMapEditor(
     return Math.hypot(event.clientX - centerX, event.clientY - centerY) <= radius;
   }
 
+  function pointInRect(x: number, y: number, rect: DOMRect, pad = 0): boolean {
+    return (
+      x >= rect.left - pad &&
+      x <= rect.right + pad &&
+      y >= rect.top - pad &&
+      y <= rect.bottom + pad
+    );
+  }
+
   function isPointerInPreviewSafeZone(event: PointerEvent, cardId: string): boolean {
-    if (isPointerOnPinDot(event, cardId)) return true;
-    if (!previewPanel || previewHost?.hidden) return false;
+    const { clientX: x, clientY: y } = event;
+    const pin = getPinElement(cardId);
 
-    const panelRect = previewPanel.getBoundingClientRect();
-    const x = event.clientX;
-    const y = event.clientY;
-
-    if (x >= panelRect.left && x <= panelRect.right && y >= panelRect.top && y <= panelRect.bottom) {
+    if (pin && pointInRect(x, y, pin.getBoundingClientRect(), SAFE_ZONE_PAD_SCREEN_PX)) {
       return true;
     }
 
-    const pin = getPinElement(cardId);
+    if (!previewHost || previewHost.hidden) return false;
+
+    const hostRect = previewHost.getBoundingClientRect();
+    if (pointInRect(x, y, hostRect, SAFE_ZONE_PAD_SCREEN_PX)) return true;
     if (!pin) return false;
 
     const pinRect = pin.getBoundingClientRect();
-    const bridgeLeft = panelRect.left;
-    const bridgeRight = panelRect.right;
-    const bridgeTop = panelRect.bottom;
-    const bridgeBottom = pinRect.bottom;
+    const pad = SAFE_ZONE_PAD_SCREEN_PX;
+    const bridge =
+      previewPlacement === "below"
+        ? {
+            left: Math.min(hostRect.left, pinRect.left) - pad,
+            right: Math.max(hostRect.right, pinRect.right) + pad,
+            top: pinRect.top - pad,
+            bottom: hostRect.top + pad,
+          }
+        : {
+            left: Math.min(hostRect.left, pinRect.left) - pad,
+            right: Math.max(hostRect.right, pinRect.right) + pad,
+            top: Math.min(hostRect.top, pinRect.top) - pad,
+            bottom: Math.max(hostRect.bottom, pinRect.bottom) + pad,
+          };
 
-    return y >= bridgeTop && y <= bridgeBottom && x >= bridgeLeft && x <= bridgeRight;
+    return x >= bridge.left && x <= bridge.right && y >= bridge.top && y <= bridge.bottom;
   }
 
   function findPreviewCardToOpen(event: PointerEvent): { card: InfoCard; displayMapX: number; displayMapY: number } | null {
@@ -163,7 +403,7 @@ export function createMapEditor(
   }
 
   function updatePreviewFromPointer(event: PointerEvent): void {
-    if (!previewEnabled || dragging) {
+    if (!previewEnabled || dragging || panning) {
       hidePreview();
       return;
     }
@@ -194,21 +434,43 @@ export function createMapEditor(
 
   function renderPins(): void {
     pinsLayer.innerHTML = "";
+    previewHost = null;
+    previewPanel = null;
+    previewCardId = null;
     selectedPin = null;
 
     for (const pinDatum of pins) {
-      const pin = createPin(pinDatum.id, pinDatum.label, pinDatum.id === selectedId);
+      const pin = createPin(pinDatum.id, pinDatum.label, allowSelectedPinDrag && pinDatum.id === selectedId);
       const display = toDisplayCoords(pinDatum.mapX, pinDatum.mapY);
       positionPin(pin, display.mapX, display.mapY);
       pinsLayer.appendChild(pin);
     }
 
-    if (!selectedId && draftPosition) {
+    if (allowSelectedPinDrag && !selectedId && draftPosition) {
       selectedPin = createPin("draft", "New location", true);
       const display = toDisplayCoords(draftPosition.mapX, draftPosition.mapY);
       positionPin(selectedPin, display.mapX, display.mapY);
       pinsLayer.appendChild(selectedPin);
     }
+  }
+
+  function repositionAllPins(): void {
+    pinsLayer.querySelectorAll(".map-editor__pin").forEach((pinEl) => {
+      const pin = pinEl as HTMLElement;
+      const id = pin.dataset.id;
+      if (!id) return;
+
+      if (id === "draft" && draftPosition) {
+        const display = toDisplayCoords(draftPosition.mapX, draftPosition.mapY);
+        positionPin(pin, display.mapX, display.mapY);
+        return;
+      }
+
+      const pinDatum = pins.find((entry) => entry.id === id);
+      if (!pinDatum) return;
+      const display = toDisplayCoords(pinDatum.mapX, pinDatum.mapY);
+      positionPin(pin, display.mapX, display.mapY);
+    });
   }
 
   function createPin(id: string, title: string, selected: boolean): HTMLButtonElement {
@@ -225,27 +487,68 @@ export function createMapEditor(
   }
 
   function positionPin(pin: HTMLElement, mapX: number, mapY: number): void {
-    pin.style.left = `${mapX * 100}%`;
-    pin.style.top = `${mapY * 100}%`;
+    if (stageWidth > 0 && stageHeight > 0) {
+      pin.style.left = `${mapX * stageWidth}px`;
+      pin.style.top = `${mapY * stageHeight}px`;
+    } else {
+      pin.style.left = `${mapX * 100}%`;
+      pin.style.top = `${mapY * 100}%`;
+    }
   }
 
   function pointerToMapXY(event: PointerEvent): { mapX: number; mapY: number } | null {
-    const rect = image.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
+    if (stageWidth === 0 || stageHeight === 0) return null;
+    const rect = viewport.getBoundingClientRect();
+    const vx = event.clientX - rect.left;
+    const vy = event.clientY - rect.top;
+    const stageX = (vx - translateX) / scale;
+    const stageY = (vy - translateY) / scale;
     return {
-      mapX: clamp((event.clientX - rect.left) / rect.width, 0, 1),
-      mapY: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+      mapX: clamp(stageX / stageWidth, 0, 1),
+      mapY: clamp(stageY / stageHeight, 0, 1),
     };
   }
 
-  let dragging = false;
+  const onWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    const mx = event.clientX - rect.left;
+    const my = event.clientY - rect.top;
+
+    const factor = event.deltaY < 0 ? ZOOM_FACTOR : 1 / ZOOM_FACTOR;
+    const newScale = clamp(scale * factor, MIN_SCALE, MAX_SCALE);
+
+    const stageX = (mx - translateX) / scale;
+    const stageY = (my - translateY) / scale;
+
+    translateX = mx - stageX * newScale;
+    translateY = my - stageY * newScale;
+    scale = newScale;
+
+    applyTransform();
+  };
 
   const onPointerDown = (event: PointerEvent): void => {
     const target = (event.target as HTMLElement).closest(".map-editor__pin") as HTMLButtonElement | null;
-    if (!target?.classList.contains("map-editor__pin--selected")) return;
-    dragging = true;
+    if (allowSelectedPinDrag && target?.classList.contains("map-editor__pin--selected")) {
+      dragging = true;
+      hidePreview();
+      viewport.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest(".map-editor__preview")) return;
+
+    panning = true;
     hidePreview();
-    target.setPointerCapture(event.pointerId);
+    panStartX = event.clientX;
+    panStartY = event.clientY;
+    panOriginX = translateX;
+    panOriginY = translateY;
+    viewport.classList.add("map-editor__viewport--panning");
+    viewport.setPointerCapture(event.pointerId);
     event.preventDefault();
   };
 
@@ -260,6 +563,13 @@ export function createMapEditor(
       return;
     }
 
+    if (panning) {
+      translateX = panOriginX + (event.clientX - panStartX);
+      translateY = panOriginY + (event.clientY - panStartY);
+      applyTransform();
+      return;
+    }
+
     updatePreviewFromPointer(event);
   };
 
@@ -267,6 +577,7 @@ export function createMapEditor(
     const related = event.relatedTarget;
     if (related instanceof Node) {
       if (previewPanel?.contains(related)) return;
+      if (previewHost?.contains(related)) return;
       if (previewCardId) {
         const pin = getPinElement(previewCardId);
         if (pin?.contains(related)) return;
@@ -275,17 +586,24 @@ export function createMapEditor(
     hidePreview();
   };
 
-  const stopDrag = (): void => {
+  const stopPointerInteraction = (): void => {
     dragging = false;
+    panning = false;
+    viewport.classList.remove("map-editor__viewport--panning");
   };
 
-  pinsLayer.addEventListener("pointerdown", onPointerDown);
-  pinsLayer.addEventListener("pointermove", onPointerMove);
-  pinsLayer.addEventListener("pointerleave", onPointerLeave);
-  pinsLayer.addEventListener("pointerup", stopDrag);
-  pinsLayer.addEventListener("pointercancel", stopDrag);
+  viewport.addEventListener("wheel", onWheel, { passive: false });
+  viewport.addEventListener("pointerdown", onPointerDown);
+  viewport.addEventListener("pointermove", onPointerMove);
+  viewport.addEventListener("pointerleave", onPointerLeave);
+  viewport.addEventListener("pointerup", stopPointerInteraction);
+  viewport.addEventListener("pointercancel", stopPointerInteraction);
 
   renderPins();
+  applyTransform();
+  if (image.complete) {
+    updateStageMetrics();
+  }
 
   return {
     setSelectedPin(mapX: number, mapY: number): void {
@@ -295,17 +613,25 @@ export function createMapEditor(
     },
     getSelectedPinPosition(): { mapX: number; mapY: number } | null {
       if (!selectedPin) return null;
-      const displayX = parseFloat(selectedPin.style.left) / 100;
-      const displayY = parseFloat(selectedPin.style.top) / 100;
-      if (!Number.isFinite(displayX) || !Number.isFinite(displayY)) return null;
-      return fromDisplayCoords(displayX, displayY);
+      const left = parseFloat(selectedPin.style.left);
+      const top = parseFloat(selectedPin.style.top);
+      if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+      if (stageWidth > 0 && stageHeight > 0) {
+        return fromDisplayCoords(left / stageWidth, top / stageHeight);
+      }
+      return fromDisplayCoords(left / 100, top / 100);
+    },
+    showCardPreview(cardId: string | null): void {
+      openCardPreview(cardId);
     },
     destroy(): void {
-      pinsLayer.removeEventListener("pointerdown", onPointerDown);
-      pinsLayer.removeEventListener("pointermove", onPointerMove);
-      pinsLayer.removeEventListener("pointerleave", onPointerLeave);
-      pinsLayer.removeEventListener("pointerup", stopDrag);
-      pinsLayer.removeEventListener("pointercancel", stopDrag);
+      resizeObserver.disconnect();
+      viewport.removeEventListener("wheel", onWheel);
+      viewport.removeEventListener("pointerdown", onPointerDown);
+      viewport.removeEventListener("pointermove", onPointerMove);
+      viewport.removeEventListener("pointerleave", onPointerLeave);
+      viewport.removeEventListener("pointerup", stopPointerInteraction);
+      viewport.removeEventListener("pointercancel", stopPointerInteraction);
     },
   };
 }

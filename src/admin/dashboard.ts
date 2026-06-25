@@ -21,6 +21,16 @@ import { createMapEditor } from "./mapEditor";
 
 type FormState = Omit<InfoCard, "id">;
 
+function renderAdminSiteFooter(): string {
+  return `
+    <footer class="admin-site-footer" aria-label="Site footer">
+      <div class="admin-site-footer__bar">
+        <p>&copy; ${new Date().getFullYear()} techNL</p>
+      </div>
+    </footer>
+  `;
+}
+
 const emptyForm = (): FormState => ({
   title: "",
   body: "",
@@ -73,44 +83,87 @@ function renderDashboard(root: HTMLElement): void {
         </div>
       </header>
       <div class="admin-layout">
-        <section class="admin-panel admin-panel--editor">
-          <div id="edit-cards-section" class="admin-panel__body edit-cards-section" hidden>
-            <div class="edit-cards-section__form admin-scroll">
-              <h2 id="form-title">Edit card</h2>
-              <form id="card-form" class="admin-form">
-                <label>Title<input name="title" required /></label>
-                <label>Company<input name="companyName" /></label>
-                <label>Impact story<textarea name="body" rows="4" required></textarea></label>
-                <label class="admin-form__address">
-                  Address
-                  <span class="admin-form__address-row">
-                    <input name="address" placeholder="City, Country" />
-                    <button type="button" id="geocode-btn" class="admin-btn--pill">Geocode address</button>
-                  </span>
-                </label>
-                <span id="geocode-result" class="admin-muted admin-form__geocode-result"></span>
-                <small class="admin-attribution">Geocoding &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</small>
-                <label>Image URL<input name="imageUrl" type="url" placeholder="https://…" /></label>
-                <label>Link URL<input name="linkUrl" type="url" placeholder="https://…" /></label>
-                <label class="admin-checkbox"><input name="active" type="checkbox" checked /> Active</label>
-                <div class="admin-form__actions">
-                  <button type="submit" class="admin-btn--pill">Save</button>
-                  <button type="button" id="delete-btn" class="admin-btn--pill admin-btn--pill--purple" hidden>Delete</button>
+        <section id="edit-cards-section" class="admin-canvas" hidden aria-label="Edit cards">
+          <div class="admin-canvas__workspace">
+            <div class="admin-canvas__row">
+              <div id="map-editor-host" class="admin-canvas__map"></div>
+              <aside class="admin-canvas__cards" aria-label="Cards and editor">
+                <div class="admin-canvas__cards-inner">
+                  <div id="cards-shelf-view" class="admin-canvas__cards-view">
+                    <div class="admin-canvas__cards-toolbar">
+                      <h2>Cards</h2>
+                      <button type="button" id="new-card-btn" class="admin-btn--pill">New card</button>
+                    </div>
+                    <div class="admin-scroll admin-canvas__cards-body">
+                      <ul id="card-list" class="admin-card-list"></ul>
+                    </div>
+                  </div>
+                  <div id="edit-shelf-view" class="admin-canvas__cards-view" hidden>
+                    <div class="admin-canvas__cards-toolbar">
+                      <h2 id="form-title">Edit card</h2>
+                      <button type="button" id="edit-shelf-back" class="admin-canvas__cards-back" aria-label="Back to cards">×</button>
+                    </div>
+                    <form id="card-form" class="admin-form admin-form--edit">
+                      <div class="admin-form__scroll admin-scroll">
+                        <div class="admin-form__tabs" role="tablist" aria-label="Card fields">
+                          <button type="button" class="admin-form__tab admin-form__tab--active" role="tab" aria-selected="true" data-form-tab="details">Details</button>
+                          <button type="button" class="admin-form__tab" role="tab" aria-selected="false" data-form-tab="location">Location</button>
+                          <button type="button" class="admin-form__tab" role="tab" aria-selected="false" data-form-tab="media">Media</button>
+                        </div>
+                        <div class="admin-form__tabpanel admin-form__tabpanel--active" data-form-tabpanel="details" role="tabpanel">
+                          <label>Title<input name="title" required /></label>
+                          <label>Company<input name="companyName" /></label>
+                          <label>Impact story<textarea name="body" rows="20" required></textarea></label>
+                          <label class="admin-checkbox"><input name="active" type="checkbox" checked /> Active</label>
+                        </div>
+                        <div class="admin-form__tabpanel" data-form-tabpanel="location" role="tabpanel" hidden>
+                          <label>Address<input name="address" placeholder="City, Country" /></label>
+                          <button type="button" id="geocode-btn" class="admin-btn--pill admin-form__geocode-btn">Geocode address</button>
+                          <span id="geocode-result" class="admin-muted admin-form__geocode-result"></span>
+                          <small class="admin-attribution">Geocoding &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</small>
+                        </div>
+                        <div class="admin-form__tabpanel" data-form-tabpanel="media" role="tabpanel" hidden>
+                          <label>Image URL<input name="imageUrl" type="url" placeholder="https://…" /></label>
+                          <label>Link URL<input name="linkUrl" type="url" placeholder="https://…" /></label>
+                        </div>
+                      </div>
+                      <div class="admin-form__footer">
+                        <div class="admin-form__actions">
+                          <button type="submit" class="admin-btn--pill">Save</button>
+                          <button type="button" id="delete-btn" class="admin-btn--pill admin-btn--pill--purple" hidden>Delete</button>
+                        </div>
+                        <p id="form-error" class="admin-error" hidden></p>
+                      </div>
+                    </form>
+                  </div>
                 </div>
-                <p id="form-error" class="admin-error" hidden></p>
-              </form>
+              </aside>
             </div>
-            <div id="map-editor-host" class="admin-map-host edit-cards-section__map"></div>
           </div>
-          <div id="calibration-section" class="admin-panel__body calibration-section" hidden>
-            <div id="calibration-host"></div>
+        </section>
+        <section id="calibrate-section" class="admin-canvas" hidden aria-label="Calibrate map">
+          <div class="admin-canvas__workspace">
+            <div class="admin-canvas__row">
+              <div id="calibration-map-host" class="admin-canvas__map"></div>
+              <aside class="admin-canvas__cards" aria-label="Calibration">
+                <div class="admin-canvas__cards-inner">
+                  <div class="admin-canvas__cards-view">
+                    <div class="admin-canvas__cards-toolbar">
+                      <h2>Calibration points</h2>
+                    </div>
+                    <div id="calibration-side-host" class="calibration-side admin-form admin-form--edit"></div>
+                  </div>
+                </div>
+              </aside>
+            </div>
           </div>
+        </section>
+        <section class="admin-panel admin-panel--editor">
           <div id="submissions-section" class="admin-scroll admin-panel__body" hidden>
             <div id="submission-detail-host"></div>
           </div>
         </section>
         <div class="admin-sidebar">
-          <section class="admin-panel admin-panel--sidebar-placeholder" id="sidebar-placeholder"></section>
           <section class="admin-panel admin-panel--submissions" id="submissions-sidebar-panel" hidden>
             <div class="admin-panel__head">
               <h2>Pending submissions <span id="submission-count" class="admin-badge" hidden>0</span></h2>
@@ -119,23 +172,9 @@ function renderDashboard(root: HTMLElement): void {
               <ul id="submission-list" class="admin-card-list"></ul>
             </div>
           </section>
-          <section class="admin-panel admin-panel--cards" hidden>
-            <div class="admin-panel__head">
-              <h2>Cards</h2>
-              <button type="button" id="new-card-btn" class="admin-btn--pill">New card</button>
-            </div>
-            <div class="admin-scroll admin-panel__body">
-              <ul id="card-list" class="admin-card-list"></ul>
-            </div>
-          </section>
-          <section class="admin-panel admin-panel--calibration-list" id="calibration-sidebar-panel" hidden>
-            <div class="admin-panel__head">
-              <h2>Calibration points</h2>
-            </div>
-            <div class="admin-scroll admin-panel__body" id="calibration-list-host"></div>
-          </section>
         </div>
       </div>
+      ${renderAdminSiteFooter()}
     </div>
   `;
 
@@ -149,7 +188,33 @@ function renderDashboard(root: HTMLElement): void {
   });
 
   lockNativeScroll(root.querySelector(".admin") as HTMLElement);
+  const cardForm = root.querySelector("#card-form") as HTMLFormElement | null;
+  if (cardForm) setupFormTabs(cardForm);
   void setupDashboard(root);
+}
+
+function setupFormTabs(form: HTMLFormElement): void {
+  const tabs = form.querySelectorAll<HTMLButtonElement>("[data-form-tab]");
+  const panels = form.querySelectorAll<HTMLElement>("[data-form-tabpanel]");
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const tabId = tab.dataset.formTab;
+      if (!tabId) return;
+
+      tabs.forEach((entry) => {
+        const active = entry === tab;
+        entry.classList.toggle("admin-form__tab--active", active);
+        entry.setAttribute("aria-selected", String(active));
+      });
+
+      panels.forEach((panel) => {
+        const active = panel.dataset.formTabpanel === tabId;
+        panel.hidden = !active;
+        panel.classList.toggle("admin-form__tabpanel--active", active);
+      });
+    });
+  });
 }
 
 function lockNativeScroll(container: HTMLElement): void {
@@ -190,21 +255,47 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   const formError = root.querySelector("#form-error") as HTMLElement;
   const geocodeResult = root.querySelector("#geocode-result") as HTMLElement;
   const editCardsSection = root.querySelector("#edit-cards-section") as HTMLElement;
-  const calibrationSection = root.querySelector("#calibration-section") as HTMLElement;
-  const calibrationHost = root.querySelector("#calibration-host") as HTMLElement;
+  const calibrateSection = root.querySelector("#calibrate-section") as HTMLElement;
+  const adminLayout = root.querySelector(".admin-layout") as HTMLElement;
+  const adminPanelEditor = root.querySelector(".admin-panel--editor") as HTMLElement;
+  const adminSidebar = root.querySelector(".admin-sidebar") as HTMLElement;
+  const calibrationSideHost = root.querySelector("#calibration-side-host") as HTMLElement;
+  const calibrationMapHost = root.querySelector("#calibration-map-host") as HTMLElement;
   const editCardsToggleBtn = root.querySelector("#edit-cards-toggle-btn") as HTMLButtonElement;
   const calibrateToggleBtn = root.querySelector("#calibrate-toggle-btn") as HTMLButtonElement;
   const submissionsToggleBtn = root.querySelector("#submissions-toggle-btn") as HTMLButtonElement;
   const submissionsSection = root.querySelector("#submissions-section") as HTMLElement;
-  const cardsSidebarPanel = root.querySelector(".admin-panel--cards") as HTMLElement;
-  const calibrationSidebarPanel = root.querySelector("#calibration-sidebar-panel") as HTMLElement;
   const submissionsSidebarPanel = root.querySelector("#submissions-sidebar-panel") as HTMLElement;
-  const sidebarPlaceholder = root.querySelector("#sidebar-placeholder") as HTMLElement;
-  const calibrationListHost = root.querySelector("#calibration-list-host") as HTMLElement;
   const mapHost = root.querySelector("#map-editor-host") as HTMLElement;
   const deleteBtn = root.querySelector("#delete-btn") as HTMLButtonElement;
+  const cardsShelfView = root.querySelector("#cards-shelf-view") as HTMLElement;
+  const editShelfView = root.querySelector("#edit-shelf-view") as HTMLElement;
   const impactStoryInput = form.elements.namedItem("body") as HTMLTextAreaElement;
   let impactStoryMinHeightPx = 0;
+
+  const showCardsView = (): void => {
+    const wasEditView = isEditViewOpen();
+    cardsShelfView.hidden = false;
+    editShelfView.hidden = true;
+    if (wasEditView) {
+      selectedId = null;
+      renderList();
+    }
+    if (activePanel === "edit") {
+      refreshMapEditor();
+    }
+  };
+
+  const showEditView = (): void => {
+    cardsShelfView.hidden = true;
+    editShelfView.hidden = false;
+    requestAnimationFrame(captureImpactStoryMinHeight);
+    if (activePanel === "edit") {
+      refreshMapEditor();
+    }
+  };
+
+  const isEditViewOpen = (): boolean => !editShelfView.hidden;
 
   const captureImpactStoryMinHeight = (): void => {
     if (editCardsSection.hidden || impactStoryMinHeightPx > 0) return;
@@ -228,15 +319,17 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   void document.fonts.ready.then(captureImpactStoryMinHeight);
 
   const updateSidebarForMode = (): void => {
-    sidebarPlaceholder.hidden = activePanel !== null;
-    cardsSidebarPanel.hidden = activePanel !== "edit";
-    calibrationSidebarPanel.hidden = activePanel !== "calibrate";
+    if (activePanel === "edit" || activePanel === "calibrate") return;
     submissionsSidebarPanel.hidden = activePanel !== "submissions";
   };
 
   const updatePanelVisibility = (): void => {
+    const isCanvasMode = activePanel === "edit" || activePanel === "calibrate";
     editCardsSection.hidden = activePanel !== "edit";
-    calibrationSection.hidden = activePanel !== "calibrate";
+    calibrateSection.hidden = activePanel !== "calibrate";
+    adminLayout.classList.toggle("admin-layout--canvas", isCanvasMode);
+    adminPanelEditor.hidden = activePanel !== "submissions";
+    adminSidebar.hidden = isCanvasMode || activePanel === null;
     submissionsSection.hidden = activePanel !== "submissions";
     editCardsToggleBtn.setAttribute("aria-expanded", String(activePanel === "edit"));
     calibrateToggleBtn.setAttribute("aria-expanded", String(activePanel === "calibrate"));
@@ -279,7 +372,7 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
 
   const mountCalibrationPanel = (): void => {
     calibrationPanel?.destroy();
-    calibrationPanel = createCalibrationPanel(calibrationListHost, calibrationHost, calibrationPoints, {
+    calibrationPanel = createCalibrationPanel(calibrationSideHost, calibrationMapHost, calibrationPoints, {
       onChange(points) {
         applyCalibration(points);
       },
@@ -298,13 +391,10 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     mountCalibrationPanel();
     renderSubmissions();
     if (selectedId && cards.some((c) => c.id === selectedId)) {
-      selectCard(selectedId);
+      selectCard(selectedId, { openEditor: false });
       return;
     }
-    if (!selectedId && cards.length > 0) {
-      selectCard(cards[0].id);
-      return;
-    }
+    showCardsView();
     renderList();
     if (activePanel === "edit") {
       refreshMapEditor();
@@ -558,11 +648,14 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
       .join("");
 
     listEl.querySelectorAll("[data-id]").forEach((button) => {
-      button.addEventListener("click", () => selectCard(button.getAttribute("data-id")!));
+      const id = button.getAttribute("data-id")!;
+      button.addEventListener("click", () => selectCard(id));
+      button.addEventListener("mouseenter", () => mapEditor?.showCardPreview(id));
+      button.addEventListener("mouseleave", () => mapEditor?.showCardPreview(null));
     });
   };
 
-  const selectCard = (id: string): void => {
+  const selectCard = (id: string, options: { openEditor?: boolean } = { openEditor: true }): void => {
     const card = cards.find((c) => c.id === id);
     if (!card) return;
     selectedId = id;
@@ -572,22 +665,27 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     geocodeResult.textContent = "";
     fillForm(form, formState);
     renderList();
-    if (activePanel === "edit") {
+    if (options.openEditor !== false) {
+      showEditView();
+    } else if (activePanel === "edit") {
       refreshMapEditor();
     }
   };
 
   const refreshMapEditor = (): void => {
+    const allowSelectedPinDrag = isEditViewOpen();
     mapEditor?.destroy();
     mapEditor = createMapEditor(
       mapHost,
       {
         pins: cards.map((c) => ({ id: c.id, label: c.title, mapX: c.mapX, mapY: c.mapY })),
-        selectedId,
-        draftPosition: selectedId ? undefined : { mapX: formState.mapX, mapY: formState.mapY },
+        selectedId: allowSelectedPinDrag ? selectedId : null,
+        draftPosition:
+          allowSelectedPinDrag && !selectedId ? { mapX: formState.mapX, mapY: formState.mapY } : undefined,
         toDisplayCoords: mapXYOriginalToAdmin,
         fromDisplayCoords: mapXYAdminToOriginal,
         previewCards: cards,
+        allowSelectedPinDrag,
       },
       {
         onPinMove(mapX, mapY) {
@@ -620,9 +718,14 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     geocodeResult.textContent = "";
     fillForm(form, formState);
     renderList();
+    showEditView();
     if (activePanel === "edit") {
       refreshMapEditor();
     }
+  });
+
+  root.querySelector("#edit-shelf-back")?.addEventListener("click", () => {
+    showCardsView();
   });
 
   root.querySelector("#geocode-btn")?.addEventListener("click", async () => {
@@ -669,6 +772,7 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
       fillForm(form, formState);
       deleteBtn.hidden = true;
       formTitle.textContent = "New card";
+      showCardsView();
       await load();
     } catch (error) {
       formError.textContent = error instanceof Error ? error.message : "Delete failed.";
