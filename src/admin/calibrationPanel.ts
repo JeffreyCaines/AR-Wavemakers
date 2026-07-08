@@ -18,7 +18,7 @@ export function createCalibrationPanel(
   let mapEditor: ReturnType<typeof createMapEditor> | null = null;
 
   sideHost.innerHTML = `
-    <div class="admin-form__scroll admin-scroll">
+    <div class="calibration-side__controls">
       <p id="calibration-help" class="calibration__help">
         This map is artistic and does not match real-world geography. Add at least
         <strong>two</strong> cities you can identify on the wall map, drag each pin
@@ -30,11 +30,14 @@ export function createCalibrationPanel(
         <button type="button" id="calibration-add-btn" class="admin-btn--pill">Add point</button>
       </div>
       <p id="calibration-msg" class="calibration__msg admin-muted" hidden></p>
+    </div>
+    <div class="admin-scroll calibration-side__scroll">
       <ul class="calibration__list"></ul>
     </div>
-    <div class="admin-form__footer">
-      <div class="admin-form__actions">
-        <button type="button" id="calibration-save-btn" class="admin-btn--pill">Save calibration</button>
+    <div class="submission-sidebar__footer">
+      <div class="submission-sidebar__actions">
+        <button type="button" id="calibration-save-btn" class="admin-btn--pill">Save</button>
+        <button type="button" id="calibration-delete-btn" class="admin-btn--pill admin-btn--pill--purple" disabled>Delete</button>
       </div>
     </div>
   `;
@@ -44,6 +47,7 @@ export function createCalibrationPanel(
   const addressInput = sideHost.querySelector("#calibration-address") as HTMLInputElement;
   const addBtn = sideHost.querySelector("#calibration-add-btn") as HTMLButtonElement;
   const saveBtn = sideHost.querySelector("#calibration-save-btn") as HTMLButtonElement;
+  const deleteBtn = sideHost.querySelector("#calibration-delete-btn") as HTMLButtonElement;
   const msgEl = sideHost.querySelector("#calibration-msg") as HTMLElement;
   const helpEl = sideHost.querySelector("#calibration-help") as HTMLElement;
   const defaultAddressPlaceholder = "City, Country";
@@ -72,9 +76,24 @@ export function createCalibrationPanel(
     helpEl.hidden = points.length >= 2;
   };
 
+  const updateDeleteAction = (): void => {
+    deleteBtn.disabled = !selectedId || !points.some((point) => point.id === selectedId);
+  };
+
+  const removeSelectedPoint = (): void => {
+    if (!selectedId) return;
+    points = points.filter((point) => point.id !== selectedId);
+    selectedId = points[0]?.id ?? null;
+    refreshList();
+    refreshMap();
+    refreshStatus();
+    updateDeleteAction();
+  };
+
   const refreshList = (): void => {
     if (points.length === 0) {
       listEl.innerHTML = `<li class="admin-muted">No calibration points yet.</li>`;
+      updateDeleteAction();
       return;
     }
     listEl.innerHTML = points
@@ -85,31 +104,35 @@ export function createCalibrationPanel(
               <strong>${escapeHtml(p.label || "Untitled")}</strong>
               <span>${p.lat.toFixed(2)}°, ${p.lng.toFixed(2)}°</span>
             </button>
-            <button type="button" class="calibration__delete admin-btn admin-btn--danger" data-id="${escapeAttr(p.id)}" title="Remove">×</button>
           </li>
         `
       )
       .join("");
 
     listEl.querySelectorAll(".calibration__select").forEach((btn) => {
+      const id = btn.getAttribute("data-id");
       btn.addEventListener("click", () => {
-        selectedId = btn.getAttribute("data-id");
+        selectedId = id;
         refreshList();
         refreshMap();
+        updateDeleteAction();
       });
+      if (id) {
+        btn.addEventListener("mouseenter", () => mapEditor?.showCardPreview(id));
+        btn.addEventListener("mouseleave", () => mapEditor?.showCardPreview(null));
+      }
     });
 
-    listEl.querySelectorAll(".calibration__delete").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-id");
-        if (!id) return;
-        points = points.filter((p) => p.id !== id);
-        if (selectedId === id) selectedId = points[0]?.id ?? null;
-        refreshList();
-        refreshMap();
-        refreshStatus();
-      });
-    });
+    updateDeleteAction();
+  };
+
+  const buildCalibrationPreviewHtml = (pinId: string): string | null => {
+    const point = points.find((p) => p.id === pinId);
+    if (!point) return null;
+    return `
+      <strong class="ar-card__title">${escapeHtml(point.label || "Untitled")}</strong>
+      <span class="ar-card__address">${point.lat.toFixed(4)}°, ${point.lng.toFixed(4)}°</span>
+    `;
   };
 
   const refreshMap = (): void => {
@@ -122,6 +145,8 @@ export function createCalibrationPanel(
         pinClass: "map-editor__pin--calibration",
         toDisplayCoords: mapXYOriginalToAdmin,
         fromDisplayCoords: mapXYAdminToOriginal,
+        getPreviewHtml: buildCalibrationPreviewHtml,
+        allowSelectedPinDrag: true,
       },
       {
         onPinMove(mapX, mapY) {
@@ -175,6 +200,10 @@ export function createCalibrationPanel(
     if (idx === -1) return;
     points[idx] = { ...points[idx], mapX: pos.mapX, mapY: pos.mapY };
   };
+
+  deleteBtn.addEventListener("click", () => {
+    removeSelectedPoint();
+  });
 
   saveBtn.addEventListener("click", async () => {
     syncSelectedPinPosition();

@@ -14,9 +14,8 @@ body {
 .admin {
   min-height: 100vh;
   height: 100dvh;
-  background: #f3f6fb;
+  background: transparent;
   color: #0f172a;
-  padding: 0rem 0.5rem 0.5rem 0.5rem;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -116,8 +115,12 @@ body:has(.admin--share-story) {
   grid-template-columns: 1fr auto 1fr;
   gap: 0.75rem;
   align-items: center;
+  min-height: 64px;
   margin-bottom: 0.75rem;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
+  padding-right: 32px;
+  padding-left: 30px;
 }
 
 .admin-header__brand {
@@ -126,7 +129,7 @@ body:has(.admin--share-story) {
 }
 
 .logo_container {
-  height: 56px;
+  height: 64px;
 }
 
 .logo_container a {
@@ -175,10 +178,14 @@ body:has(.admin--share-story) {
 
 .admin-header__actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
   justify-self: end;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 14px;
 }
 
 .admin-header p {
@@ -189,12 +196,58 @@ body:has(.admin--share-story) {
 
 .admin-header__nav .admin-btn {
   border-radius: 100px;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 0.5rem 0.9rem;
+}
+
+.admin-header__nav .admin-btn--ghost {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.admin-header__nav .admin-btn--ghost.admin-btn--active {
+  background: #74c8cb;
+  color: #fff;
+}
+
+.admin-header__nav .admin-btn--ghost.admin-btn--active:hover {
+  background: #74c8cb;
+  color: #fff;
+}
+
+.admin-header__actions .admin-link {
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 14px;
+  padding-right: 22px;
+}
+
+.admin-header__actions .admin-link:hover {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.admin-header__actions .admin-btn--pill {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 14px;
+  padding: 0;
+  letter-spacing: normal;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.6);
+  border-radius: 0;
+}
+
+.admin-header__actions .admin-btn--pill:hover {
+  color: rgba(0, 0, 0, 0.85);
+  background: transparent;
 }
 
 .admin-link {
   color: #666666;
   text-decoration: none;
-  padding: 0.65rem 0.9rem;
+  /* padding: 0.65rem 0.9rem; */
 }
 
 .admin-link:hover {
@@ -265,20 +318,19 @@ button.admin-btn--pill {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  flex: 0 1 auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.admin-layout--canvas > .admin-canvas:not([hidden]) {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 
 .admin-layout > * {
   min-width: 0;
   min-height: 0;
-}
-
-.admin-sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .admin-scroll {
@@ -320,22 +372,9 @@ button.admin-btn--pill {
   gap: 0.65rem;
 }
 
-.admin-panel--submissions {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.admin-panel--submissions[hidden] {
-  display: none;
-}
-
 .submission-detail {
   display: grid;
   gap: 1.25rem;
-  max-width: 42rem;
 }
 
 .submission-detail__head {
@@ -348,10 +387,27 @@ button.admin-btn--pill {
   font-size: 1.35rem;
 }
 
+.submission-detail__content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.submission-detail__main {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
 .submission-detail__fields {
   display: grid;
   gap: 0.85rem;
   margin: 0;
+}
+
+.submission-detail__fields--media {
+  align-content: start;
 }
 
 .submission-detail__field {
@@ -382,32 +438,70 @@ button.admin-btn--pill {
   line-height: 1.55;
 }
 
-.submission-detail__image {
-  display: block;
-  margin-top: 0.5rem;
-  max-width: 100%;
-  max-height: 280px;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  object-fit: contain;
+.submission-detail__field--image dd {
+  min-width: 0;
 }
 
-.submission-detail__actions {
-  display: flex;
+.submission-detail__image-wrap {
+  display: grid;
   gap: 0.5rem;
-  flex-wrap: wrap;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.submission-detail__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 0;
+  outline: none;
+  vertical-align: top;
+}
+
+.submission-detail__image-link {
+  color: #0f766e;
+  word-break: break-all;
+  font-size: 0.85rem;
+}
+
+.submission-sidebar__footer {
+  flex-shrink: 0;
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.submission-sidebar__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.submission-sidebar__actions .admin-btn--pill {
+  width: 100%;
+  text-align: center;
+}
+
+.submission-sidebar__actions > .admin-btn--pill:only-child {
+  grid-column: 1 / -1;
+}
+
+.submission-sidebar__footer .admin-error {
+  margin: 0.5rem 0 0;
 }
 
 .admin-canvas {
   --admin-canvas-panel-radius: 14px;
   --admin-canvas-inset: 0.5rem;
+  --admin-canvas-gutter: 1rem;
+  --admin-canvas-cards-min-width: 320px;
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
   width: 100%;
   max-height: 100%;
   box-sizing: border-box;
-  padding: var(--admin-canvas-inset);
+  padding: var(--admin-canvas-inset) var(--admin-canvas-gutter);
   border-radius: var(--admin-canvas-panel-radius);
   overflow: hidden;
   background: #e8edf4;
@@ -420,14 +514,15 @@ button.admin-btn--pill {
 .admin-canvas__workspace {
   display: block;
   min-width: 0;
+  width: 100%;
 }
 
 .admin-canvas__row {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 1rem;
-  width: max-content;
+  gap: var(--admin-canvas-gutter);
+  width: 100%;
   max-width: 100%;
   flex-shrink: 0;
 }
@@ -448,13 +543,147 @@ button.admin-btn--pill {
     inset 0 4px 28px rgba(15, 23, 42, 0.12);
 }
 
-.admin-canvas__cards {
-  width: 320px;
+.admin-canvas__detail {
   flex: 0 0 auto;
-  box-sizing: border-box;
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.admin-canvas__detail .admin-canvas__cards-inner {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+#submissions-section .admin-canvas__detail {
+  --submissions-reveal-delay: 0s;
+  --submissions-reveal-duration: 1s;
+}
+
+#submissions-section .admin-canvas__detail.admin-canvas__map {
+  box-shadow: none;
+}
+
+.submissions-detail__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: var(--admin-canvas-panel-radius);
+}
+
+.submissions-detail__map {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  border: 0;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.submissions-detail__map--base {
+  opacity: 1;
+  transition: opacity var(--submissions-reveal-duration) ease;
+  transition-delay: var(--submissions-reveal-delay);
+}
+
+.submissions-detail__map--blur {
+  opacity: 0;
+  filter: blur(14px);
+  transform: scale(1.04);
+  transform-origin: center center;
+  transition: opacity var(--submissions-reveal-duration) ease;
+  transition-delay: var(--submissions-reveal-delay);
+}
+
+#submissions-section.admin-canvas--submissions-open .submissions-detail__map--base {
+  opacity: 0;
+}
+
+#submissions-section.admin-canvas--submissions-open .submissions-detail__map--blur {
+  opacity: 1;
+}
+
+.submissions-detail__frost {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--admin-canvas-panel-radius);
+  background: rgba(255, 255, 255, 0);
+  transition: background-color var(--submissions-reveal-duration) ease;
+  transition-delay: 0s;
+}
+
+#submissions-section.admin-canvas--submissions-open .submissions-detail__frost {
+  background: rgba(255, 255, 255, 0.82);
+  transition-delay: var(--submissions-reveal-delay);
+}
+
+#submissions-section .admin-canvas__detail .admin-canvas__cards-inner {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  overflow: visible;
+}
+
+#submissions-section #submission-detail-host {
+  opacity: 0;
+  transition: opacity var(--submissions-reveal-duration) ease;
+  transition-delay: 0s;
+}
+
+#submissions-section.admin-canvas--submissions-open #submission-detail-host {
+  opacity: 1;
+  transition-delay: var(--submissions-reveal-delay);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #submissions-section .submissions-detail__map--base,
+  #submissions-section .submissions-detail__map--blur,
+  #submissions-section .submissions-detail__frost,
+  #submissions-section #submission-detail-host {
+    transition: none;
+  }
+
+  #submissions-section.admin-canvas--submissions-open .submissions-detail__map--base {
+    opacity: 0;
+  }
+
+  #submissions-section.admin-canvas--submissions-open .submissions-detail__map--blur {
+    opacity: 1;
+  }
+
+  #submissions-section.admin-canvas--submissions-open .submissions-detail__frost {
+    background: rgba(255, 255, 255, 0.82);
+  }
+}
+
+.admin-canvas__cards {
+  flex: 1 1 0;
+  min-width: var(--admin-canvas-cards-min-width);
+  width: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
@@ -525,17 +754,6 @@ button.admin-btn--pill {
 .admin-canvas__cards-body {
   flex: 1;
   min-height: 0;
-}
-
-.admin-panel--editor {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  --admin-map-outer-radius: 16px;
-  --admin-map-outer-inset: 1rem;
-  --admin-map-border-width: 1px;
-  --admin-map-radius-host: calc(var(--admin-map-outer-radius) - var(--admin-map-outer-inset) / 2);
 }
 
 .admin-panel__body {
@@ -696,7 +914,8 @@ button.admin-btn--pill {
 }
 
 .admin-form__geocode-btn {
-  justify-self: start;
+  width: 100%;
+  text-align: center;
 }
 
 .admin-form__geocode-result {
@@ -724,9 +943,6 @@ button.admin-btn--pill {
 
 /*
  * Admin map corner radii (edit cards + calibrate map only).
- * Outer reference: .admin-panel--editor (16px radius, 1rem padding).
- * When outer radius minus inset would be <= 0, halve the inset each layer:
- *   host: 16 - 8 = 8px, editor: 8 - 4 = 4px, image: 4 - 1px border = 3px.
  */
 #map-editor-host,
 #calibration-map-host {
@@ -901,6 +1117,18 @@ button.admin-btn--pill {
   transform-origin: 50% 100%;
 }
 
+.map-editor__preview-safe-blur {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.12);
+  mask: url(#map-editor-preview-safe-blur-mask);
+  -webkit-mask: url(#map-editor-preview-safe-blur-mask);
+  transform: translateZ(0);
+}
+
 .map-editor__preview {
   position: relative;
   display: grid;
@@ -974,20 +1202,19 @@ button.admin-btn--pill {
   color: #fff;
 }
 
-.admin-panel--editor .admin-panel__body[hidden] {
-  display: none;
-}
-
-.admin-panel--editor[hidden] {
-  display: none;
-}
-
-.admin-sidebar[hidden] {
-  display: none;
-}
-
 .calibration-side {
-  flex: 1 1 auto;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.calibration-side__controls {
+  flex-shrink: 0;
+}
+
+.calibration-side__scroll {
+  flex: 1;
   min-height: 0;
 }
 
@@ -1037,18 +1264,17 @@ button.admin-btn--pill {
 }
 
 .calibration__item {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
+  display: block;
 }
 
-.calibration__item--active .calibration__select {
+.calibration__item--active .calibration__select,
+.calibration__select:hover {
   border-color: #74c8cb;
-  background: #eff6ff;
+  background: #f8fafc;
 }
 
 .calibration__select {
-  flex: 1;
+  width: 100%;
   text-align: left;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -1056,6 +1282,9 @@ button.admin-btn--pill {
   background: #fff;
   cursor: pointer;
   font: inherit;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 
 .calibration__select strong {
@@ -1068,15 +1297,9 @@ button.admin-btn--pill {
   color: #64748b;
 }
 
-.calibration__delete {
-  padding: 0.35rem 0.55rem;
-  line-height: 1;
-  font-size: 1.1rem;
-}
-
 @media (max-width: 1100px) {
-  .admin-canvas__cards {
-    width: min(280px, calc(100vw - 2rem));
+  .admin-canvas {
+    --admin-canvas-cards-min-width: min(280px, calc(100vw - 2rem));
   }
 }
 
@@ -1091,6 +1314,7 @@ button.admin-btn--pill {
   .admin-canvas__cards {
     width: 100%;
     max-width: none;
+    min-width: 0;
     flex: 0 0 auto;
     max-height: min(42vh, 360px);
   }

@@ -15,6 +15,8 @@ import {
 } from "../shared/api";
 import { buildProjection, mapXYAdminToOriginal, mapXYOriginalToAdmin, projectLatLng, type Projection } from "../shared/geo";
 import type { CalibrationPoint, GeocodeResult, InfoCard, StorySubmission } from "../shared/types";
+import { MAP_ADMIN_CROP, MAP_ADMIN_REFERENCE_PATH } from "../shared/types";
+import { fitCanvasMainPanel, resetCanvasMainPanel } from "./canvasLayout";
 import { createCalibrationPanel } from "./calibrationPanel";
 import { renderAdminLogin } from "./login";
 import { createMapEditor } from "./mapEditor";
@@ -65,21 +67,20 @@ function renderDashboard(root: HTMLElement): void {
         <div class="admin-header__brand logo_container">
           <a href="https://technl.ca/">
             <span class="logo_helper" aria-hidden="true"></span>
-            <img src="${techNlLogoUrl}" alt="techNL" class="admin-header__logo">
+            <img src="${techNlLogoUrl}" alt="techNL" class="admin-header__logo" width="1080" height="424" decoding="async" />
           </a>
-          <!-- <p>Place cards on the world map for the AR experience.</p> -->
         </div>
         <nav class="admin-header__nav" aria-label="Dashboard sections">
-          <button type="button" id="edit-cards-toggle-btn" class="admin-btn admin-btn--ghost" aria-expanded="false">Edit cards</button>
-          <button type="button" id="calibrate-toggle-btn" class="admin-btn admin-btn--ghost" aria-expanded="false">Calibrate map</button>
+          <button type="button" id="edit-cards-toggle-btn" class="admin-btn admin-btn--ghost" aria-expanded="false">Edit Cards</button>
+          <button type="button" id="calibrate-toggle-btn" class="admin-btn admin-btn--ghost" aria-expanded="false">Calibrate Map</button>
           <button type="button" id="submissions-toggle-btn" class="admin-btn admin-btn--ghost" aria-expanded="false">
-            Review submissions <span id="submission-toggle-badge" class="admin-badge" hidden>0</span>
+            Review Submissions <span id="submission-toggle-badge" class="admin-badge" hidden>0</span>
           </button>
         </nav>
         <div class="admin-header__actions">
-          <a href="/share-story.html" class="admin-link">Share story form</a>
+          <a href="/share-story.html" class="admin-link">Share Story Form</a>
           <a href="/ar-preview" class="admin-link">Open AR Viewer</a>
-          <button type="button" id="logout-btn" class="admin-btn--pill">Sign out</button>
+          <button type="button" id="logout-btn" class="admin-btn--pill">Sign Out</button>
         </div>
       </header>
       <div class="admin-layout">
@@ -92,10 +93,14 @@ function renderDashboard(root: HTMLElement): void {
                   <div id="cards-shelf-view" class="admin-canvas__cards-view">
                     <div class="admin-canvas__cards-toolbar">
                       <h2>Cards</h2>
-                      <button type="button" id="new-card-btn" class="admin-btn--pill">New card</button>
                     </div>
                     <div class="admin-scroll admin-canvas__cards-body">
                       <ul id="card-list" class="admin-card-list"></ul>
+                    </div>
+                    <div class="submission-sidebar__footer">
+                      <div class="submission-sidebar__actions">
+                        <button type="button" id="new-card-btn" class="admin-btn--pill">New card</button>
+                      </div>
                     </div>
                   </div>
                   <div id="edit-shelf-view" class="admin-canvas__cards-view" hidden>
@@ -107,16 +112,13 @@ function renderDashboard(root: HTMLElement): void {
                       <div class="admin-form__scroll admin-scroll">
                         <div class="admin-form__tabs" role="tablist" aria-label="Card fields">
                           <button type="button" class="admin-form__tab admin-form__tab--active" role="tab" aria-selected="true" data-form-tab="details">Details</button>
-                          <button type="button" class="admin-form__tab" role="tab" aria-selected="false" data-form-tab="location">Location</button>
                           <button type="button" class="admin-form__tab" role="tab" aria-selected="false" data-form-tab="media">Media</button>
                         </div>
                         <div class="admin-form__tabpanel admin-form__tabpanel--active" data-form-tabpanel="details" role="tabpanel">
                           <label>Title<input name="title" required /></label>
                           <label>Company<input name="companyName" /></label>
-                          <label>Impact story<textarea name="body" rows="20" required></textarea></label>
+                          <label>Impact story<textarea name="body" rows="17" required></textarea></label>
                           <label class="admin-checkbox"><input name="active" type="checkbox" checked /> Active</label>
-                        </div>
-                        <div class="admin-form__tabpanel" data-form-tabpanel="location" role="tabpanel" hidden>
                           <label>Address<input name="address" placeholder="City, Country" /></label>
                           <button type="button" id="geocode-btn" class="admin-btn--pill admin-form__geocode-btn">Geocode address</button>
                           <span id="geocode-result" class="admin-muted admin-form__geocode-result"></span>
@@ -127,10 +129,10 @@ function renderDashboard(root: HTMLElement): void {
                           <label>Link URL<input name="linkUrl" type="url" placeholder="https://…" /></label>
                         </div>
                       </div>
-                      <div class="admin-form__footer">
-                        <div class="admin-form__actions">
+                      <div class="submission-sidebar__footer">
+                        <div class="submission-sidebar__actions">
                           <button type="submit" class="admin-btn--pill">Save</button>
-                          <button type="button" id="delete-btn" class="admin-btn--pill admin-btn--pill--purple" hidden>Delete</button>
+                          <button type="button" id="delete-btn" class="admin-btn--pill admin-btn--pill--purple" disabled>Delete</button>
                         </div>
                         <p id="form-error" class="admin-error" hidden></p>
                       </div>
@@ -158,21 +160,56 @@ function renderDashboard(root: HTMLElement): void {
             </div>
           </div>
         </section>
-        <section class="admin-panel admin-panel--editor">
-          <div id="submissions-section" class="admin-scroll admin-panel__body" hidden>
-            <div id="submission-detail-host"></div>
+        <section id="submissions-section" class="admin-canvas" hidden aria-label="Review submissions">
+          <div class="admin-canvas__workspace">
+            <div class="admin-canvas__row">
+              <div class="admin-canvas__detail admin-canvas__map">
+                <div class="submissions-detail__backdrop" aria-hidden="true">
+                  <img
+                    class="submissions-detail__map submissions-detail__map--base"
+                    src="${MAP_ADMIN_REFERENCE_PATH}"
+                    alt=""
+                    decoding="async"
+                    draggable="false"
+                  />
+                  <img
+                    class="submissions-detail__map submissions-detail__map--blur"
+                    src="${MAP_ADMIN_REFERENCE_PATH}"
+                    alt=""
+                    decoding="async"
+                    draggable="false"
+                  />
+                </div>
+                <div class="submissions-detail__frost">
+                  <div class="admin-canvas__cards-inner">
+                    <div class="admin-canvas__cards-view">
+                      <div id="submission-detail-host" class="admin-scroll admin-canvas__cards-body"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <aside class="admin-canvas__cards" id="submissions-sidebar-panel" aria-label="Pending submissions">
+                <div class="admin-canvas__cards-inner">
+                  <div class="admin-canvas__cards-view">
+                    <div class="admin-canvas__cards-toolbar">
+                      <h2>Pending submissions <span id="submission-count" class="admin-badge" hidden>0</span></h2>
+                    </div>
+                    <div class="admin-scroll admin-canvas__cards-body">
+                      <ul id="submission-list" class="admin-card-list"></ul>
+                    </div>
+                    <div class="submission-sidebar__footer">
+                      <div class="submission-sidebar__actions">
+                        <button type="button" id="submission-approve-btn" class="admin-btn--pill" disabled>Approve</button>
+                        <button type="button" id="submission-reject-btn" class="admin-btn--pill admin-btn--pill--purple" disabled>Reject</button>
+                      </div>
+                      <p id="submission-detail-error" class="admin-error" hidden></p>
+                    </div>
+                  </div>
+                </div>
+              </aside>
+            </div>
           </div>
         </section>
-        <div class="admin-sidebar">
-          <section class="admin-panel admin-panel--submissions" id="submissions-sidebar-panel" hidden>
-            <div class="admin-panel__head">
-              <h2>Pending submissions <span id="submission-count" class="admin-badge" hidden>0</span></h2>
-            </div>
-            <div class="admin-scroll admin-panel__body">
-              <ul id="submission-list" class="admin-card-list"></ul>
-            </div>
-          </section>
-        </div>
       </div>
       ${renderAdminSiteFooter()}
     </div>
@@ -250,6 +287,9 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   const submissionCountEl = root.querySelector("#submission-count") as HTMLElement;
   const submissionToggleBadgeEl = root.querySelector("#submission-toggle-badge") as HTMLElement;
   const submissionDetailHost = root.querySelector("#submission-detail-host") as HTMLElement;
+  const submissionApproveBtn = root.querySelector("#submission-approve-btn") as HTMLButtonElement;
+  const submissionRejectBtn = root.querySelector("#submission-reject-btn") as HTMLButtonElement;
+  const submissionDetailError = root.querySelector("#submission-detail-error") as HTMLElement;
   const form = root.querySelector("#card-form") as HTMLFormElement;
   const formTitle = root.querySelector("#form-title") as HTMLElement;
   const formError = root.querySelector("#form-error") as HTMLElement;
@@ -257,15 +297,13 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   const editCardsSection = root.querySelector("#edit-cards-section") as HTMLElement;
   const calibrateSection = root.querySelector("#calibrate-section") as HTMLElement;
   const adminLayout = root.querySelector(".admin-layout") as HTMLElement;
-  const adminPanelEditor = root.querySelector(".admin-panel--editor") as HTMLElement;
-  const adminSidebar = root.querySelector(".admin-sidebar") as HTMLElement;
+  const submissionsSection = root.querySelector("#submissions-section") as HTMLElement;
+  const submissionsDetailPanel = submissionsSection.querySelector(".admin-canvas__detail") as HTMLElement;
   const calibrationSideHost = root.querySelector("#calibration-side-host") as HTMLElement;
   const calibrationMapHost = root.querySelector("#calibration-map-host") as HTMLElement;
   const editCardsToggleBtn = root.querySelector("#edit-cards-toggle-btn") as HTMLButtonElement;
   const calibrateToggleBtn = root.querySelector("#calibrate-toggle-btn") as HTMLButtonElement;
   const submissionsToggleBtn = root.querySelector("#submissions-toggle-btn") as HTMLButtonElement;
-  const submissionsSection = root.querySelector("#submissions-section") as HTMLElement;
-  const submissionsSidebarPanel = root.querySelector("#submissions-sidebar-panel") as HTMLElement;
   const mapHost = root.querySelector("#map-editor-host") as HTMLElement;
   const deleteBtn = root.querySelector("#delete-btn") as HTMLButtonElement;
   const cardsShelfView = root.querySelector("#cards-shelf-view") as HTMLElement;
@@ -318,34 +356,56 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   impactStoryInput.addEventListener("touchend", enforceImpactStoryMinHeight);
   void document.fonts.ready.then(captureImpactStoryMinHeight);
 
-  const updateSidebarForMode = (): void => {
-    if (activePanel === "edit" || activePanel === "calibrate") return;
-    submissionsSidebarPanel.hidden = activePanel !== "submissions";
+  const layoutSubmissionsCanvas = (): void => {
+    if (submissionsSection.hidden) return;
+    fitCanvasMainPanel(
+      submissionsSection,
+      submissionsDetailPanel,
+      MAP_ADMIN_CROP.width,
+      MAP_ADMIN_CROP.height
+    );
+  };
+
+  const resetSubmissionsCanvasLayout = (): void => {
+    resetCanvasMainPanel(submissionsSection, submissionsDetailPanel);
   };
 
   const updatePanelVisibility = (): void => {
-    const isCanvasMode = activePanel === "edit" || activePanel === "calibrate";
+    const isCanvasMode = activePanel === "edit" || activePanel === "calibrate" || activePanel === "submissions";
+    const wasSubmissions = !submissionsSection.hidden;
     editCardsSection.hidden = activePanel !== "edit";
     calibrateSection.hidden = activePanel !== "calibrate";
     adminLayout.classList.toggle("admin-layout--canvas", isCanvasMode);
-    adminPanelEditor.hidden = activePanel !== "submissions";
-    adminSidebar.hidden = isCanvasMode || activePanel === null;
     submissionsSection.hidden = activePanel !== "submissions";
+    if (wasSubmissions && activePanel !== "submissions") {
+      resetSubmissionsCanvasLayout();
+    }
+    if (activePanel !== "submissions") {
+      submissionsSection.classList.remove("admin-canvas--submissions-open");
+    }
     editCardsToggleBtn.setAttribute("aria-expanded", String(activePanel === "edit"));
     calibrateToggleBtn.setAttribute("aria-expanded", String(activePanel === "calibrate"));
     submissionsToggleBtn.setAttribute("aria-expanded", String(activePanel === "submissions"));
     editCardsToggleBtn.classList.toggle("admin-btn--active", activePanel === "edit");
     calibrateToggleBtn.classList.toggle("admin-btn--active", activePanel === "calibrate");
     submissionsToggleBtn.classList.toggle("admin-btn--active", activePanel === "submissions");
-    updateSidebarForMode();
 
     if (activePanel === "edit") {
-      requestAnimationFrame(captureImpactStoryMinHeight);
-      refreshMapEditor();
+      requestAnimationFrame(() => {
+        captureImpactStoryMinHeight();
+        refreshMapEditor();
+      });
     } else if (activePanel === "calibrate") {
-      calibrationPanel?.refreshMap();
+      requestAnimationFrame(() => calibrationPanel?.refreshMap());
     } else if (activePanel === "submissions") {
+      submissionsSection.classList.remove("admin-canvas--submissions-open");
       renderSubmissionDetail();
+      requestAnimationFrame(() => {
+        layoutSubmissionsCanvas();
+        requestAnimationFrame(() => {
+          submissionsSection.classList.add("admin-canvas--submissions-open");
+        });
+      });
     }
   };
 
@@ -363,7 +423,10 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   editCardsToggleBtn.addEventListener("click", () => togglePanel("edit"));
   calibrateToggleBtn.addEventListener("click", () => togglePanel("calibrate"));
   submissionsToggleBtn.addEventListener("click", () => togglePanel("submissions"));
-  updateSidebarForMode();
+
+  const submissionsResizeObserver = new ResizeObserver(() => layoutSubmissionsCanvas());
+  submissionsResizeObserver.observe(adminLayout);
+  window.addEventListener("resize", layoutSubmissionsCanvas);
 
   const applyCalibration = (points: CalibrationPoint[]): void => {
     calibrationPoints = points;
@@ -418,6 +481,25 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     }
   };
 
+  const updateSubmissionActions = (): void => {
+    const hasSelection = Boolean(
+      selectedSubmissionId && submissions.some((submission) => submission.id === selectedSubmissionId)
+    );
+    submissionApproveBtn.disabled = !hasSelection;
+    submissionRejectBtn.disabled = !hasSelection;
+  };
+
+  submissionApproveBtn.addEventListener("click", () => {
+    if (selectedSubmissionId) {
+      void handleApproveSubmission(selectedSubmissionId);
+    }
+  });
+  submissionRejectBtn.addEventListener("click", () => {
+    if (selectedSubmissionId) {
+      void handleRejectSubmission(selectedSubmissionId);
+    }
+  });
+
   const renderSubmissions = (): void => {
     updateSubmissionBadges();
 
@@ -427,6 +509,7 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
       if (activePanel === "submissions") {
         renderSubmissionDetail();
       }
+      updateSubmissionActions();
       return;
     }
 
@@ -456,14 +539,41 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     if (activePanel === "submissions") {
       renderSubmissionDetail();
     }
+
+    updateSubmissionActions();
   };
 
   const renderSubmissionDetail = (): void => {
     const submission = submissions.find((s) => s.id === selectedSubmissionId);
     if (!submission) {
       submissionDetailHost.innerHTML = `<p class="admin-muted">No pending submissions to review.</p>`;
+      submissionDetailError.hidden = true;
+      submissionDetailError.textContent = "";
+      updateSubmissionActions();
       return;
     }
+
+    const mediaFieldsHtml = [
+      submission.imageUrl
+        ? `
+          <div class="submission-detail__field submission-detail__field--image">
+            <dt>Image</dt>
+            <dd class="submission-detail__image-wrap">
+              <img class="submission-detail__image" src="${escapeAttr(submission.imageUrl)}" alt="" loading="lazy" />
+              <a class="submission-detail__image-link" href="${escapeAttr(submission.imageUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(submission.imageUrl)}</a>
+            </dd>
+          </div>`
+        : "",
+      submission.linkUrl
+        ? `
+          <div class="submission-detail__field">
+            <dt>Link</dt>
+            <dd><a href="${escapeAttr(submission.linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(submission.linkUrl)}</a></dd>
+          </div>`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("");
 
     submissionDetailHost.innerHTML = `
       <article class="submission-detail">
@@ -471,74 +581,53 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
           <h2>${escapeHtml(submission.title)}</h2>
           <time class="admin-muted">Submitted ${formatSubmittedAt(submission.submittedAt)}</time>
         </header>
-        <dl class="submission-detail__fields">
-          <div class="submission-detail__field">
-            <dt>Company</dt>
-            <dd>${escapeHtml(submission.companyName || "—")}</dd>
-          </div>
-          <div class="submission-detail__field">
-            <dt>Address</dt>
-            <dd>${escapeHtml(submission.address)}</dd>
+        <div class="submission-detail__content">
+          <div class="submission-detail__main">
+            <dl class="submission-detail__fields submission-detail__fields--meta">
+              <div class="submission-detail__field">
+                <dt>Company</dt>
+                <dd>${escapeHtml(submission.companyName || "—")}</dd>
+              </div>
+              <div class="submission-detail__field">
+                <dt>Address</dt>
+                <dd>${escapeHtml(submission.address)}</dd>
+              </div>
+              ${
+                submission.contactEmail
+                  ? `
+              <div class="submission-detail__field">
+                <dt>Contact email</dt>
+                <dd><a href="mailto:${escapeAttr(submission.contactEmail)}">${escapeHtml(submission.contactEmail)}</a></dd>
+              </div>`
+                  : ""
+              }
+            </dl>
+            <dl class="submission-detail__fields submission-detail__fields--story">
+              <div class="submission-detail__field">
+                <dt>Impact story</dt>
+                <dd class="submission-detail__body">${escapeHtml(submission.body)}</dd>
+              </div>
+            </dl>
           </div>
           ${
-            submission.contactEmail
-              ? `
-          <div class="submission-detail__field">
-            <dt>Contact email</dt>
-            <dd><a href="mailto:${escapeAttr(submission.contactEmail)}">${escapeHtml(submission.contactEmail)}</a></dd>
-          </div>`
+            mediaFieldsHtml
+              ? `<dl class="submission-detail__fields submission-detail__fields--media">${mediaFieldsHtml}</dl>`
               : ""
           }
-          <div class="submission-detail__field submission-detail__field--full">
-            <dt>Impact story</dt>
-            <dd class="submission-detail__body">${escapeHtml(submission.body)}</dd>
-          </div>
-          ${
-            submission.imageUrl
-              ? `
-          <div class="submission-detail__field submission-detail__field--full">
-            <dt>Image</dt>
-            <dd>
-              <a href="${escapeAttr(submission.imageUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(submission.imageUrl)}</a>
-              <img class="submission-detail__image" src="${escapeAttr(submission.imageUrl)}" alt="" loading="lazy" />
-            </dd>
-          </div>`
-              : ""
-          }
-          ${
-            submission.linkUrl
-              ? `
-          <div class="submission-detail__field">
-            <dt>Link</dt>
-            <dd><a href="${escapeAttr(submission.linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(submission.linkUrl)}</a></dd>
-          </div>`
-              : ""
-          }
-        </dl>
-        <div class="submission-detail__actions">
-          <button type="button" id="submission-approve-btn" class="admin-btn--pill">Approve</button>
-          <button type="button" id="submission-reject-btn" class="admin-btn--pill admin-btn--pill--purple">Reject</button>
         </div>
-        <p id="submission-detail-error" class="admin-error" hidden></p>
       </article>
     `;
 
-    submissionDetailHost.querySelector("#submission-approve-btn")?.addEventListener("click", () => {
-      void handleApproveSubmission(submission.id);
-    });
-    submissionDetailHost.querySelector("#submission-reject-btn")?.addEventListener("click", () => {
-      void handleRejectSubmission(submission.id);
-    });
+    submissionDetailError.hidden = true;
+    submissionDetailError.textContent = "";
+    updateSubmissionActions();
   };
 
   const showSubmissionError = (message: string): void => {
     if (activePanel === "submissions") {
-      const errorEl = submissionDetailHost.querySelector("#submission-detail-error") as HTMLElement | null;
-      if (errorEl) {
-        errorEl.textContent = message;
-        errorEl.hidden = false;
-        return;
-      }
+      submissionDetailError.textContent = message;
+      submissionDetailError.hidden = false;
+      return;
     }
     formError.textContent = message;
     formError.hidden = false;
@@ -609,6 +698,10 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     formState.mapY = pos.mapY;
   };
 
+  const updateCardActions = (): void => {
+    deleteBtn.disabled = !selectedId;
+  };
+
   const applySavedCard = (saved: InfoCard): void => {
     const { id, ...state } = saved;
     selectedId = id;
@@ -619,10 +712,10 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     } else {
       cards[idx] = saved;
     }
-    deleteBtn.hidden = false;
     formTitle.textContent = "Edit card";
     fillForm(form, formState);
     renderList();
+    updateCardActions();
     if (activePanel === "edit") {
       refreshMapEditor();
     }
@@ -661,10 +754,10 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     selectedId = id;
     formState = { ...card };
     formTitle.textContent = "Edit card";
-    deleteBtn.hidden = false;
     geocodeResult.textContent = "";
     fillForm(form, formState);
     renderList();
+    updateCardActions();
     if (options.openEditor !== false) {
       showEditView();
     } else if (activePanel === "edit") {
@@ -714,10 +807,10 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     selectedId = null;
     formState = emptyForm();
     formTitle.textContent = "New card";
-    deleteBtn.hidden = true;
     geocodeResult.textContent = "";
     fillForm(form, formState);
     renderList();
+    updateCardActions();
     showEditView();
     if (activePanel === "edit") {
       refreshMapEditor();
@@ -770,8 +863,8 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
       selectedId = null;
       formState = emptyForm();
       fillForm(form, formState);
-      deleteBtn.hidden = true;
       formTitle.textContent = "New card";
+      updateCardActions();
       showCardsView();
       await load();
     } catch (error) {

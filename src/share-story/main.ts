@@ -10,7 +10,7 @@ function renderShareStoryTopBar(): string {
       <div class="share-story__brand logo_container">
         <a href="https://technl.ca/">
           <span class="logo_helper" aria-hidden="true"></span>
-          <img src="${techNlLogoUrl}" alt="techNL" class="admin-header__logo">
+          <img src="${techNlLogoUrl}" alt="techNL" class="admin-header__logo" width="1080" height="424" decoding="async" />
         </a>
       </div>
       <a href="/" class="admin-link share-story__back">← Back to map</a>
