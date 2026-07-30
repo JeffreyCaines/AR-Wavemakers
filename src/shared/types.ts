@@ -1,3 +1,5 @@
+import { getRipplesSimDurationMs, getRipplesOriginMapXY } from "./ripplesSim";
+
 export interface InfoCard {
   id: string;
   title: string;
@@ -54,7 +56,60 @@ export const MAP_REFERENCE_PATH = "/map-reference.jpg";
 /** Admin pin editor uses the tighter crop of the wall photo (not the AR tracking image). */
 export const MAP_ADMIN_REFERENCE_PATH = "/map-reference%20-%20cropped.jpg";
 export const MAP_TARGET_PATH = "/map-target.mind";
+export const RIPPLES_GIF_PATH = "/assets/ripples.gif";
+export const RIPPLES_FADE_GIF_PATH = "/assets/ripples-fade.gif";
+/** @deprecated Prefer getRipplesSimDurationMs from ripplesSim — kept for admin GIF preview. */
+export const RIPPLES_LOOP_DURATION_MS = 11030;
+export const RIPPLES_FADE_DURATION_MS = 11130;
 export const DEFAULT_MAP_ASPECT_RATIO = 1.5;
+
+export type RipplesVariant = "loop" | "fade";
+
+/** Placement of one ripples shader variant on the AR reference map. */
+export interface RipplesAnchorPlacement {
+  mapX: number;
+  mapY: number;
+  originX: number;
+  originY: number;
+  widthRatio: number;
+}
+
+/** Saved ripples configuration for the AR viewer and admin editor. */
+export interface RipplesAnchor {
+  activeVariant: RipplesVariant;
+  loop: RipplesAnchorPlacement;
+  fade: RipplesAnchorPlacement;
+}
+
+export const DEFAULT_RIPPLES_PLACEMENT: RipplesAnchorPlacement = {
+  ...getRipplesOriginMapXY(),
+  originX: 0.33,
+  originY: 0.67,
+  widthRatio: 1,
+};
+
+export const DEFAULT_RIPPLES_ANCHOR: RipplesAnchor = {
+  activeVariant: "loop",
+  loop: { ...DEFAULT_RIPPLES_PLACEMENT },
+  fade: { ...DEFAULT_RIPPLES_PLACEMENT },
+};
+
+export function getRipplesGifPath(variant: RipplesVariant): string {
+  return variant === "fade" ? RIPPLES_FADE_GIF_PATH : RIPPLES_GIF_PATH;
+}
+
+/** Procedural ripples duration (matches ripples.py total_duration). */
+export function getRipplesPlayDurationMs(_variant?: RipplesVariant): number {
+  return getRipplesSimDurationMs();
+}
+
+export function getRipplesPlacement(config: RipplesAnchor, variant: RipplesVariant): RipplesAnchorPlacement {
+  return config[variant];
+}
+
+export function getActiveRipplesPlacement(config: RipplesAnchor): RipplesAnchorPlacement {
+  return getRipplesPlacement(config, config.activeVariant);
+}
 
 /** Pixel crop of `map-reference - cropped.jpg` within `map-reference.jpg`. */
 export const MAP_ADMIN_CROP = {

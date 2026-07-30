@@ -3,20 +3,32 @@ import "./simViewer.css";
 import "../admin/styles.css";
 import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { renderAdminLogin } from "../admin/login";
-import { fetchActiveCards, getAdminToken } from "../shared/api";
+import { fetchActiveCards, fetchRipplesAnchorConfig } from "../shared/api";
 import { loadMapAspectRatio } from "../shared/geo";
-import { DEFAULT_MAP_ASPECT_RATIO, MAP_REFERENCE_PATH } from "../shared/types";
-import type { InfoCard } from "../shared/types";
+import { isPinRevealed, ST_JOHNS_CARD_ID } from "../shared/ripplesReveal";
+import { getRipplesSimDurationSec, RIPPLE_MASK_HEIGHT, RIPPLE_MASK_WIDTH } from "../shared/ripplesSim";
 import {
+  DEFAULT_MAP_ASPECT_RATIO,
+  DEFAULT_RIPPLES_ANCHOR,
+  getActiveRipplesPlacement,
+  MAP_REFERENCE_PATH,
+} from "../shared/types";
+import type { InfoCard, RipplesAnchor } from "../shared/types";
+import { createRipplesEffect, type RipplesEffect } from "./ripplesEffect";
+import {
+  applyPinVisibility,
   createActiveCardTracker,
   createCardDetailSheet,
-  createCardOverlay,
+  createOverlaysFromCards,
+  pinUnlockTimingOffset,
+  RIPPLES_REVEAL_DELAY_MS,
   updatePointing,
   updateTrackingUI,
   type ActiveCardTracker,
   type CardOverlay,
 } from "./viewerShared";
+
+const RIPPLE_MASK_SIZE = { width: RIPPLE_MASK_WIDTH, height: RIPPLE_MASK_HEIGHT };
 
 const ORIENTATION_STORAGE_KEY = "ar_preview_orientation";
 const MAP_DISTANCE = 0.85;
@@ -51,29 +63,20 @@ function preventArPreviewPullToRefresh(event: TouchEvent): void {
 export function initArSimViewer(root: HTMLElement): void {
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#f3f6fb");
   enableArPreviewPullToRefreshGuard();
-  if (!getAdminToken()) {
-    renderAdminLogin(root, {
-      title: "AR Preview",
-      subtitle: "Sign in to preview the AR experience on desktop.",
-      onSuccess: () => renderSimViewer(root),
-    });
-    return;
-  }
-  renderSimViewer(root);
-}
 
-function renderSimViewer(root: HTMLElement): void {
   const initialOrientation = loadOrientation();
 
   root.innerHTML = `
     <div class="ar-sim">
       <div class="ar-sim__chrome">
-        <a href="/admin" class="admin-btn--pill">← Back to admin</a>
+        <button type="button" id="ar-sim-replay-ripples" class="admin-btn--pill">
+          Replay ripples
+        </button>
         <button type="button" id="ar-sim-orientation-toggle" class="admin-btn--pill" aria-pressed="false">
           Switch to landscape
         </button>
       </div>
-      <p class="ar-sim__hint">Drag inside the phone frame to move around the map.</p>
+      <p class="ar-sim__hint">Drag inside the phone frame to move around the map. Use Replay ripples to re-run pin reveals.</p>
       <div class="ar-sim__stage">
         <div id="ar-sim-device" class="ar-sim-device ar-sim-device--${initialOrientation}">
           <div class="ar-app ar-app--running ar-app--sim">
@@ -102,6 +105,7 @@ function renderSimViewer(root: HTMLElement): void {
 
   const deviceEl = root.querySelector("#ar-sim-device") as HTMLElement;
   const orientationToggle = root.querySelector("#ar-sim-orientation-toggle") as HTMLButtonElement;
+  const replayBtn = root.querySelector("#ar-sim-replay-ripples") as HTMLButtonElement;
   const container = root.querySelector("#ar-container") as HTMLElement;
   const statusEl = root.querySelector("#ar-status") as HTMLElement;
   const arApp = root.querySelector(".ar-app") as HTMLElement;
@@ -138,6 +142,16 @@ function renderSimViewer(root: HTMLElement): void {
   let cssRenderer: CSS2DRenderer | null = null;
   let camera: THREE.PerspectiveCamera | null = null;
   let scene: THREE.Scene | null = null;
+  let anchorGroup: THREE.Group | null = null;
+
+  let ripplesEffect: RipplesEffect | null = null;
+  let ripplesAnchor: RipplesAnchor = { ...DEFAULT_RIPPLES_ANCHOR };
+  let ripplesShowGeneration = 0;
+  let ripplesTimer: ReturnType<typeof setTimeout> | null = null;
+  let pinsFullyRevealed = false;
+  let allowPinTargeting = false;
+  /** Sim treats the map as always tracked once the scene is ready. */
+  let tracking = false;
 
   let cameraYaw = 0;
   let cameraPitch = 0;
@@ -156,6 +170,133 @@ function renderSimViewer(root: HTMLElement): void {
     }
   };
   window.addEventListener("popstate", onPopState);
+
+  replayBtn.addEventListener("click", () => {
+    replayRipplesReveal();
+  });
+
+  function cardIsRevealedAt(card: InfoCard, elapsedSec: number | null): boolean {
+    if (pinsFullyRevealed) return true;
+    if (!tracking) return card.id === ST_JOHNS_CARD_ID;
+    const origin = getActiveRipplesPlacement(ripplesAnchor);
+    const playSec = getRipplesSimDurationSec();
+    return isPinRevealed(
+      card,
+      origin,
+      elapsedSec,
+      playSec,
+      ripplesAnchor.activeVariant,
+      RIPPLE_MASK_SIZE.width,
+      RIPPLE_MASK_SIZE.height,
+      false
+    );
+  }
+
+  function cardIsRevealed(card: InfoCard): boolean {
+    return cardIsRevealedAt(card, ripplesEffect?.getElapsedSec() ?? null);
+  }
+
+  function syncPinVisibility(): void {
+    applyPinVisibility(overlays, detailSheet.isOpen(), cardIsRevealed);
+  }
+
+  function clearActivePinVisuals(): void {
+    for (const overlay of overlays) {
+      overlay.marker.classList.remove("ar-card__marker--active");
+      overlay.panel.classList.remove("ar-card__panel--visible");
+    }
+  }
+
+  function lockPinTargeting(): void {
+    allowPinTargeting = false;
+    pinsFullyRevealed = false;
+    activeCardTracker?.resetSheetTimer();
+    clearActivePinVisuals();
+    syncPinVisibility();
+  }
+
+  function unlockPinTargeting(): void {
+    allowPinTargeting = true;
+    pinsFullyRevealed = true;
+  }
+
+  function allActivePinsVisibleAt(elapsedSec: number | null): boolean {
+    if (overlays.length === 0) return true;
+    return overlays.every((overlay) =>
+      overlay.group.cards.some((card) => cardIsRevealedAt(card, elapsedSec))
+    );
+  }
+
+  /**
+   * Unlock when all pins are visible, shifted by `pinUnlockTimingOffset` ms
+   * (positive = later, negative = earlier).
+   */
+  function maybeUnlockWhenAllPinsVisible(): void {
+    if (allowPinTargeting || pinsFullyRevealed || !tracking) return;
+    if (!ripplesEffect?.isPlaying()) return;
+    const elapsed = ripplesEffect.getElapsedSec();
+    if (elapsed == null) return;
+    const adjustedElapsed = elapsed - pinUnlockTimingOffset / 1000;
+    if (!allActivePinsVisibleAt(adjustedElapsed)) return;
+    unlockPinTargeting();
+  }
+
+  function cancelRipplesReveal(): void {
+    if (ripplesTimer !== null) {
+      clearTimeout(ripplesTimer);
+      ripplesTimer = null;
+    }
+    ripplesShowGeneration += 1;
+    ripplesEffect?.stop();
+    if (!pinsFullyRevealed) {
+      allowPinTargeting = false;
+      syncPinVisibility();
+      return;
+    }
+    unlockPinTargeting();
+  }
+
+  function startRipplesPlaybackClock(): void {
+    if (!tracking || !ripplesEffect) return;
+    ripplesEffect.start();
+    syncPinVisibility();
+    maybeUnlockWhenAllPinsVisible();
+  }
+
+  function beginSyncedRipplesPlayback(showGeneration: number): void {
+    if (!tracking || !ripplesEffect) return;
+    if (showGeneration !== ripplesShowGeneration) return;
+    ripplesEffect.setVariant(ripplesAnchor.activeVariant);
+    const origin = getActiveRipplesPlacement(ripplesAnchor);
+    ripplesEffect.setOrigin(origin.mapX, origin.mapY);
+    startRipplesPlaybackClock();
+  }
+
+  function scheduleRipplesReveal(): void {
+    if (!tracking) return;
+    if (!ripplesEffect || ripplesTimer !== null || ripplesEffect.isPlaying()) return;
+
+    lockPinTargeting();
+    const showGeneration = ripplesShowGeneration;
+
+    ripplesTimer = setTimeout(() => {
+      ripplesTimer = null;
+      if (showGeneration !== ripplesShowGeneration || !tracking || !ripplesEffect) return;
+      beginSyncedRipplesPlayback(showGeneration);
+    }, RIPPLES_REVEAL_DELAY_MS);
+  }
+
+  function replayRipplesReveal(): void {
+    if (!ripplesEffect || !tracking) return;
+    if (detailSheet.isOpen()) {
+      detailSheet.dismiss();
+    }
+    cancelRipplesReveal();
+    pinsFullyRevealed = false;
+    allowPinTargeting = false;
+    syncPinVisibility();
+    scheduleRipplesReveal();
+  }
 
   function onResize(): void {
     if (!renderer || !cssRenderer || !camera) return;
@@ -224,7 +365,11 @@ function renderSimViewer(root: HTMLElement): void {
   async function bootstrap(): Promise<void> {
     try {
       aspectRatio = await loadMapAspectRatio(MAP_REFERENCE_PATH, DEFAULT_MAP_ASPECT_RATIO);
-      const cards = await fetchActiveCards();
+      const [cards, anchor] = await Promise.all([
+        fetchActiveCards(),
+        fetchRipplesAnchorConfig().catch(() => ({ ...DEFAULT_RIPPLES_ANCHOR })),
+      ]);
+      ripplesAnchor = anchor;
       await initScene(cards);
       statusEl.textContent = "Map detected. Aim at a location.";
       statusEl.classList.add("ar-status--tracking");
@@ -256,29 +401,53 @@ function renderSimViewer(root: HTMLElement): void {
     mapMesh.position.set(0, 0, -MAP_DISTANCE);
     scene.add(mapMesh);
 
-    const anchorGroup = new THREE.Group();
+    anchorGroup = new THREE.Group();
     mapMesh.add(anchorGroup);
 
-    overlays = cards.map((card) => createCardOverlay(card, aspectRatio));
+    const origin = getActiveRipplesPlacement(ripplesAnchor);
+    ripplesEffect = await createRipplesEffect(
+      aspectRatio,
+      ripplesAnchor.activeVariant,
+      origin.mapX,
+      origin.mapY
+    );
+    anchorGroup.add(ripplesEffect.mesh);
+
+    overlays = createOverlaysFromCards(cards, aspectRatio);
     overlays.forEach(({ markerObject, panelObject }) => {
-      anchorGroup.add(markerObject);
-      anchorGroup.add(panelObject);
+      anchorGroup!.add(markerObject);
+      anchorGroup!.add(panelObject);
     });
 
     activeCardTracker = createActiveCardTracker(detailSheet);
+
+    tracking = true;
+    pinsFullyRevealed = false;
+    allowPinTargeting = false;
+    syncPinVisibility();
+    scheduleRipplesReveal();
 
     updateCameraView();
     onResize();
 
     const render = (): void => {
       if (!renderer || !cssRenderer || !scene || !camera) return;
-      updateTrackingUI(statusEl, true);
-      const activeCard = updatePointing(overlays, camera, detailSheet.isOpen(), {
-        thresholdPx: POINT_TARGET_RADIUS_PX,
-        viewportWidth: container.clientWidth,
-        viewportHeight: container.clientHeight,
-      });
-      activeCardTracker?.handleActiveCard(activeCard);
+      updateTrackingUI(statusEl, tracking);
+      ripplesEffect?.update();
+      maybeUnlockWhenAllPinsVisible();
+      if (allowPinTargeting) {
+        const activeOverlay = updatePointing(overlays, camera, detailSheet.isOpen(), {
+          thresholdPx: POINT_TARGET_RADIUS_PX,
+          viewportWidth: container.clientWidth,
+          viewportHeight: container.clientHeight,
+          isRevealed: cardIsRevealed,
+        });
+        activeCardTracker?.handleActiveOverlay(activeOverlay);
+      } else {
+        syncPinVisibility();
+        clearActivePinVisuals();
+        activeCardTracker?.handleActiveOverlay(null);
+      }
       cssRenderer.render(scene, camera);
       renderer.render(scene, camera);
       requestAnimationFrame(render);
@@ -289,7 +458,15 @@ function renderSimViewer(root: HTMLElement): void {
 
 function loadTexture(url: string): Promise<THREE.Texture> {
   return new Promise((resolve, reject) => {
-    new THREE.TextureLoader().load(url, resolve, undefined, reject);
+    new THREE.TextureLoader().load(
+      url,
+      (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        resolve(texture);
+      },
+      undefined,
+      reject
+    );
   });
 }
 

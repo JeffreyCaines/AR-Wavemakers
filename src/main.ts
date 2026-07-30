@@ -1,6 +1,6 @@
 // Route-based code splitting: the AR viewer pulls in MindAR + Three.js (large),
 // which the admin dashboard never needs. Dynamic imports keep each route's
-// payload separate so /admin loads light and the heavy AR bundle only loads on /.
+// payload separate so /admin and / stay light; the heavy AR bundle only loads on /ar.
 async function route(): Promise<void> {
   const app = document.getElementById("app");
   if (!app) return;
@@ -19,8 +19,14 @@ async function route(): Promise<void> {
     return;
   }
 
-  const { initArViewer } = await import("./ar/viewer");
-  initArViewer(app);
+  if (path === "/ar") {
+    const { initArViewer } = await import("./ar/viewer");
+    initArViewer(app);
+    return;
+  }
+
+  const { initLanding } = await import("./landing/landing");
+  initLanding(app);
 }
 
 void route();

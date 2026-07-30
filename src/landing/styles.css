@@ -1,0 +1,98 @@
+@import url("https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap");
+
+.landing {
+  min-height: var(--app-height, 100dvh);
+  height: var(--app-height, 100dvh);
+  display: grid;
+  place-items: center;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 1.5rem)
+    calc(env(safe-area-inset-right, 0px) + 1.5rem)
+    calc(env(safe-area-inset-bottom, 0px) + 1.5rem)
+    calc(env(safe-area-inset-left, 0px) + 1.5rem);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(116, 200, 203, 0.22), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 80% 100%, rgba(153, 30, 114, 0.18), transparent 50%),
+    #0a1628;
+  color: #f3f6fb;
+  font-family: "Work Sans", Helvetica, Arial, Lucida, sans-serif;
+}
+
+.landing__content {
+  width: min(100%, 22rem);
+  text-align: center;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.landing__brand {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #74c8cb;
+}
+
+.landing__title {
+  margin: 0;
+  font-size: clamp(1.6rem, 5vw, 2rem);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.landing__prompt {
+  margin: 0.35rem 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.landing__actions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.landing__btn {
+  display: block;
+  padding: 0.95rem 1.25rem;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.landing__btn:hover {
+  transform: translateY(-1px);
+}
+
+.landing__btn:active {
+  transform: translateY(0);
+}
+
+.landing__btn--primary {
+  background: #74c8cb;
+  color: #0a1628;
+}
+
+.landing__btn--primary:hover {
+  background: #8fd4d6;
+}
+
+.landing__btn--secondary {
+  background: transparent;
+  color: #f3f6fb;
+  border: 1.5px solid rgba(243, 246, 251, 0.35);
+}
+
+.landing__btn--secondary:hover {
+  border-color: #74c8cb;
+  color: #74c8cb;
+}

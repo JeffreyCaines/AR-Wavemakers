@@ -27,7 +27,8 @@ html.ar-preview-active body {
 .ar-sim__chrome {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  gap: 0.5rem;
   width: 100%;
   max-width: 960px;
   padding: 0.75rem 1rem;

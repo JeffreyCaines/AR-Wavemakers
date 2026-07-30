@@ -1,22 +1,37 @@
 import "./styles.css";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { MindARThree } from "mind-ar/dist/mindar-image-three.prod.js";
-import { fetchActiveCards } from "../shared/api";
+import { fetchActiveCards, fetchRipplesAnchorConfig } from "../shared/api";
 import { loadMapAspectRatio } from "../shared/geo";
-import { DEFAULT_MAP_ASPECT_RATIO, MAP_REFERENCE_PATH, MAP_TARGET_PATH } from "../shared/types";
-import type { InfoCard } from "../shared/types";
+import { isPinRevealed, ST_JOHNS_CARD_ID } from "../shared/ripplesReveal";
+import { getRipplesSimDurationSec, RIPPLE_MASK_HEIGHT, RIPPLE_MASK_WIDTH } from "../shared/ripplesSim";
 import {
+  DEFAULT_MAP_ASPECT_RATIO,
+  DEFAULT_RIPPLES_ANCHOR,
+  getActiveRipplesPlacement,
+  MAP_REFERENCE_PATH,
+  MAP_TARGET_PATH,
+} from "../shared/types";
+import type { InfoCard, RipplesAnchor } from "../shared/types";
+import { createRipplesEffect, type RipplesEffect } from "./ripplesEffect";
+import {
+  applyPinVisibility,
   createActiveCardTracker,
   createCardDetailSheet,
-  createCardOverlay,
+  createOverlaysFromCards,
+  ORIENTATION_TRACKING_GRACE_MS,
+  pinUnlockTimingOffset,
+  RIPPLES_REVEAL_DELAY_MS,
   updatePointing,
   updateTrackingUI,
   type ActiveCardTracker,
   type CardOverlay,
 } from "./viewerShared";
 
+const RIPPLE_MASK_SIZE = { width: RIPPLE_MASK_WIDTH, height: RIPPLE_MASK_HEIGHT };
+
 export function initArViewer(root: HTMLElement): void {
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#f3f6fb");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#000");
   root.innerHTML = `
     <div class="ar-app">
       <div id="ar-container" class="ar-container"></div>
@@ -32,6 +47,15 @@ export function initArViewer(root: HTMLElement): void {
         <button id="ar-start" class="ar-btn" disabled>Start AR</button>
         <div class="ar-crosshair" aria-hidden="true"></div>
       </div>
+      <button
+        type="button"
+        id="ar-fullscreen-prompt"
+        class="ar-fullscreen-prompt"
+        hidden
+        aria-hidden="true"
+      >
+        Tap to enter fullscreen
+      </button>
       <div id="ar-sheet-backdrop" class="ar-sheet-backdrop" hidden aria-hidden="true"></div>
       <aside id="ar-sheet" class="ar-sheet" hidden aria-hidden="true" role="dialog" aria-modal="true">
         <div class="ar-sheet__handle" aria-hidden="true">
@@ -53,6 +77,20 @@ export function initArViewer(root: HTMLElement): void {
   let tracking = false;
   let activeCardTracker: ActiveCardTracker | null = null;
   let arSessionActive = false;
+  let ripplesEffect: RipplesEffect | null = null;
+  let ripplesAnchor: RipplesAnchor = { ...DEFAULT_RIPPLES_ANCHOR };
+  let ripplesTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumps on cancel so in-flight start work does not begin reveal. */
+  let ripplesShowGeneration = 0;
+  /** After one full ripples play, all pins stay visible until re-locked. */
+  let pinsFullyRevealed = false;
+  /** Pin targeting stays off until all pins are revealed by ripples. */
+  let allowPinTargeting = true;
+  /** performance.now() deadline — target-lost during this window does not wipe pins. */
+  let orientationGraceUntil = 0;
+  /** Target-lost deferred while orientation grace is active. */
+  let pendingTargetLost = false;
+  let orientationGraceTimer: ReturnType<typeof setTimeout> | null = null;
   const arApp = root.querySelector(".ar-app") as HTMLElement;
 
   const sheetBackdrop = root.querySelector("#ar-sheet-backdrop") as HTMLElement;
@@ -74,17 +112,53 @@ export function initArViewer(root: HTMLElement): void {
 
   void bootstrap();
 
-  function resetTargetingState(): void {
-    tracking = false;
-    activeCardTracker?.resetSheetTimer();
+  function cardIsRevealedAt(card: InfoCard, elapsedSec: number | null): boolean {
+    if (pinsFullyRevealed) return true;
+    if (!tracking) return card.id === ST_JOHNS_CARD_ID;
+    const origin = getActiveRipplesPlacement(ripplesAnchor);
+    const playSec = getRipplesSimDurationSec();
+    return isPinRevealed(
+      card,
+      origin,
+      elapsedSec,
+      playSec,
+      ripplesAnchor.activeVariant,
+      RIPPLE_MASK_SIZE.width,
+      RIPPLE_MASK_SIZE.height,
+      false
+    );
+  }
 
-    const sheetOpen = detailSheet.isOpen();
-    for (const overlay of overlays) {
-      overlay.markerObject.visible = !sheetOpen;
-      overlay.marker.classList.remove("ar-card__marker--active");
-      overlay.panel.classList.remove("ar-card__panel--visible");
-    }
+  function cardIsRevealed(card: InfoCard): boolean {
+    return cardIsRevealedAt(card, ripplesEffect?.getElapsedSec() ?? null);
+  }
+
+  function syncPinVisibility(): void {
+    applyPinVisibility(overlays, detailSheet.isOpen(), cardIsRevealed);
+  }
+
+  function inOrientationGrace(): boolean {
+    return performance.now() < orientationGraceUntil;
+  }
+
+  function flushPendingTargetLost(): void {
+    if (!pendingTargetLost) return;
+    if (inOrientationGrace()) return;
+    pendingTargetLost = false;
+    tracking = false;
+    cancelRipplesReveal();
     updateTrackingUI(statusEl, false);
+  }
+
+  function beginOrientationGrace(): void {
+    orientationGraceUntil = performance.now() + ORIENTATION_TRACKING_GRACE_MS;
+    if (orientationGraceTimer !== null) {
+      clearTimeout(orientationGraceTimer);
+    }
+    orientationGraceTimer = setTimeout(() => {
+      orientationGraceTimer = null;
+      flushPendingTargetLost();
+    }, ORIENTATION_TRACKING_GRACE_MS + 50);
   }
 
   function resetArViewport(): void {
@@ -93,9 +167,100 @@ export function initArViewer(root: HTMLElement): void {
     cssRenderer.setSize(container.clientWidth, container.clientHeight);
   }
 
+  function clearActivePinVisuals(): void {
+    for (const overlay of overlays) {
+      overlay.marker.classList.remove("ar-card__marker--active");
+      overlay.panel.classList.remove("ar-card__panel--visible");
+    }
+  }
+
+  function lockPinTargeting(): void {
+    allowPinTargeting = false;
+    pinsFullyRevealed = false;
+    activeCardTracker?.resetSheetTimer();
+    clearActivePinVisuals();
+    syncPinVisibility();
+  }
+
+  function unlockPinTargeting(): void {
+    allowPinTargeting = true;
+    pinsFullyRevealed = true;
+  }
+
+  function allActivePinsVisibleAt(elapsedSec: number | null): boolean {
+    if (overlays.length === 0) return true;
+    return overlays.every((overlay) =>
+      overlay.group.cards.some((card) => cardIsRevealedAt(card, elapsedSec))
+    );
+  }
+
+  /**
+   * Unlock when all pins are visible, shifted by `pinUnlockTimingOffset` ms
+   * (positive = later, negative = earlier).
+   */
+  function maybeUnlockWhenAllPinsVisible(): void {
+    if (allowPinTargeting || pinsFullyRevealed || !tracking) return;
+    if (!ripplesEffect?.isPlaying()) return;
+    const elapsed = ripplesEffect.getElapsedSec();
+    if (elapsed == null) return;
+    const adjustedElapsed = elapsed - pinUnlockTimingOffset / 1000;
+    if (!allActivePinsVisibleAt(adjustedElapsed)) return;
+    unlockPinTargeting();
+  }
+
+  function cancelRipplesReveal(): void {
+    if (ripplesTimer !== null) {
+      clearTimeout(ripplesTimer);
+      ripplesTimer = null;
+    }
+    ripplesShowGeneration += 1;
+    ripplesEffect?.stop();
+    if (!pinsFullyRevealed) {
+      allowPinTargeting = false;
+      syncPinVisibility();
+      return;
+    }
+    unlockPinTargeting();
+  }
+
+  function startRipplesPlaybackClock(): void {
+    if (!tracking || !ripplesEffect) return;
+    ripplesEffect.start();
+    syncPinVisibility();
+    maybeUnlockWhenAllPinsVisible();
+  }
+
+  function beginSyncedRipplesPlayback(showGeneration: number): void {
+    if (!tracking || !ripplesEffect) return;
+    if (showGeneration !== ripplesShowGeneration) return;
+    ripplesEffect.setVariant(ripplesAnchor.activeVariant);
+    const origin = getActiveRipplesPlacement(ripplesAnchor);
+    ripplesEffect.setOrigin(origin.mapX, origin.mapY);
+    startRipplesPlaybackClock();
+  }
+
+  function scheduleRipplesReveal(): void {
+    if (!tracking) return;
+    if (!ripplesEffect || ripplesTimer !== null || ripplesEffect.isPlaying()) return;
+    // Rotation grace: don't wipe a completed reveal by re-locking pins.
+    if (inOrientationGrace() && pinsFullyRevealed) return;
+
+    lockPinTargeting();
+    const showGeneration = ripplesShowGeneration;
+
+    ripplesTimer = setTimeout(() => {
+      ripplesTimer = null;
+      if (showGeneration !== ripplesShowGeneration || !tracking || !ripplesEffect) return;
+      beginSyncedRipplesPlayback(showGeneration);
+    }, RIPPLES_REVEAL_DELAY_MS);
+  }
+
   function handleOrientationTransition(): void {
     if (!arSessionActive) return;
-    resetTargetingState();
+    beginOrientationGrace();
+    // Do not reset targeting / wipe pins — MindAR often drops tracking briefly on rotate.
+    clearActivePinVisuals();
+    activeCardTracker?.resetSheetTimer();
     const syncViewport = (): void => {
       resetArViewport();
       applyViewportHeight();
@@ -124,7 +289,9 @@ export function initArViewer(root: HTMLElement): void {
     }
 
     startBtn.addEventListener("click", () => {
-      void requestAppFullscreen();
+      if (isLandscapeOrientation()) {
+        void requestAppFullscreen();
+      }
       void startAr();
     });
   }
@@ -137,7 +304,10 @@ export function initArViewer(root: HTMLElement): void {
 
     let cards: InfoCard[];
     try {
-      cards = await fetchActiveCards();
+      [cards, ripplesAnchor] = await Promise.all([
+        fetchActiveCards(),
+        fetchRipplesAnchorConfig().catch(() => ({ ...DEFAULT_RIPPLES_ANCHOR })),
+      ]);
     } catch {
       statusEl.textContent = "Could not load cards. Check your connection.";
       startBtn.disabled = false;
@@ -157,11 +327,37 @@ export function initArViewer(root: HTMLElement): void {
 
     const { renderer, scene, camera } = mindarThree;
     const anchor = mindarThree.addAnchor(0);
+
+    const origin = getActiveRipplesPlacement(ripplesAnchor);
+    try {
+      ripplesEffect = await createRipplesEffect(
+        aspectRatio,
+        ripplesAnchor.activeVariant,
+        origin.mapX,
+        origin.mapY
+      );
+      anchor.group.add(ripplesEffect.mesh);
+    } catch {
+      statusEl.textContent = "Could not load ripples masks.";
+      startBtn.disabled = false;
+      mindarThree = null;
+      return;
+    }
+
     anchor.onTargetFound = () => {
+      pendingTargetLost = false;
       tracking = true;
+      scheduleRipplesReveal();
     };
     anchor.onTargetLost = () => {
+      if (inOrientationGrace()) {
+        // Keep reveal state; MindAR may drop tracking briefly during rotate.
+        pendingTargetLost = true;
+        return;
+      }
+      pendingTargetLost = false;
       tracking = false;
+      cancelRipplesReveal();
     };
 
     cssRenderer = new CSS2DRenderer();
@@ -169,11 +365,15 @@ export function initArViewer(root: HTMLElement): void {
     cssRenderer.domElement.className = "ar-css-renderer";
     container.appendChild(cssRenderer.domElement);
 
-    overlays = cards.map((card) => createCardOverlay(card, aspectRatio));
+    overlays = createOverlaysFromCards(cards, aspectRatio);
     overlays.forEach(({ markerObject, panelObject }) => {
       anchor.group.add(markerObject);
       anchor.group.add(panelObject);
     });
+    // Only St. John's until the first full ripples play completes.
+    pinsFullyRevealed = false;
+    allowPinTargeting = false;
+    syncPinVisibility();
 
     activeCardTracker = createActiveCardTracker(detailSheet);
 
@@ -209,8 +409,18 @@ export function initArViewer(root: HTMLElement): void {
 
     renderer.setAnimationLoop(() => {
       updateTrackingUI(statusEl, tracking);
-      const activeCard = updatePointing(overlays, camera, detailSheet.isOpen());
-      activeCardTracker?.handleActiveCard(activeCard);
+      ripplesEffect?.update();
+      maybeUnlockWhenAllPinsVisible();
+      if (allowPinTargeting) {
+        const activeOverlay = updatePointing(overlays, camera, detailSheet.isOpen(), {
+          isRevealed: cardIsRevealed,
+        });
+        activeCardTracker?.handleActiveOverlay(activeOverlay);
+      } else {
+        syncPinVisibility();
+        clearActivePinVisuals();
+        activeCardTracker?.handleActiveOverlay(null);
+      }
       cssRenderer?.render(scene, camera);
       renderer.render(scene, camera);
     });
@@ -241,47 +451,62 @@ function updateLandscapeClass(app: HTMLElement): boolean {
   return landscape;
 }
 
+function isDocumentFullscreen(): boolean {
+  const doc = document as Document & { webkitFullscreenElement?: Element | null };
+  return Boolean(document.fullscreenElement || doc.webkitFullscreenElement);
+}
+
 async function requestAppFullscreen(): Promise<boolean> {
-  if (document.fullscreenElement) return true;
-  const root = document.documentElement;
+  if (isDocumentFullscreen()) return true;
+  const root = document.documentElement as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void>;
+  };
   try {
     if (root.requestFullscreen) {
       await root.requestFullscreen();
       return true;
     }
-    const webkitRequest = (root as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> })
-      .webkitRequestFullscreen;
-    if (webkitRequest) {
-      await webkitRequest.call(root);
+    if (root.webkitRequestFullscreen) {
+      await root.webkitRequestFullscreen.call(root);
       return true;
     }
   } catch {
     // Fullscreen may require a user gesture or is unsupported (e.g. iOS Safari).
   }
-  return Boolean(document.fullscreenElement);
+  return isDocumentFullscreen();
 }
 
-async function ensureLandscapeFullscreen(): Promise<void> {
-  if (!isLandscapeOrientation()) return;
+function getFullscreenPrompt(app: HTMLElement): HTMLButtonElement | null {
+  return app.querySelector("#ar-fullscreen-prompt");
+}
 
-  hideMobileBrowserChrome();
-
-  if (!document.fullscreenElement) {
-    await requestAppFullscreen();
-  }
-
-  applyViewportHeight();
+function setFullscreenPromptVisible(app: HTMLElement, visible: boolean): void {
+  const prompt = getFullscreenPrompt(app);
+  if (!prompt) return;
+  prompt.classList.toggle("is-visible", visible);
+  prompt.hidden = !visible;
+  prompt.setAttribute("aria-hidden", visible ? "false" : "true");
 }
 
 function syncLandscapeLayout(app: HTMLElement, arActive: boolean): void {
   const landscape = updateLandscapeClass(app);
   applyViewportHeight();
 
-  if (landscape && arActive) {
-    void ensureLandscapeFullscreen();
-  } else if (!landscape && document.fullscreenElement) {
-    void document.exitFullscreen().catch(() => undefined);
+  if (!landscape) {
+    setFullscreenPromptVisible(app, false);
+    if (isDocumentFullscreen()) {
+      void document.exitFullscreen?.().catch(() => undefined);
+    }
+    return;
   }
+
+  if (!arActive) {
+    setFullscreenPromptVisible(app, false);
+    return;
+  }
+
+  hideMobileBrowserChrome();
+  setFullscreenPromptVisible(app, !isDocumentFullscreen());
 }
 
 function scheduleLandscapeSync(app: HTMLElement, getArActive: () => boolean): void {
@@ -298,12 +523,33 @@ function setupLandscapeAndFullscreen(
   onOrientationTransition?: () => void
 ): void {
   const sync = (): void => syncLandscapeLayout(app, getArActive());
+  const prompt = getFullscreenPrompt(app);
+
+  prompt?.addEventListener("click", () => {
+    void requestAppFullscreen().then((entered) => {
+      hideMobileBrowserChrome();
+      applyViewportHeight();
+      if (entered || isDocumentFullscreen()) {
+        setFullscreenPromptVisible(app, false);
+      }
+    });
+  });
 
   window.addEventListener("resize", sync);
   window.addEventListener("orientationchange", () => {
     scheduleLandscapeSync(app, getArActive);
     onOrientationTransition?.();
   });
+  document.addEventListener("fullscreenchange", sync);
+  document.addEventListener("webkitfullscreenchange", sync);
+
+  const orientation = window.screen?.orientation;
+  if (orientation && typeof orientation.addEventListener === "function") {
+    orientation.addEventListener("change", () => {
+      scheduleLandscapeSync(app, getArActive);
+      onOrientationTransition?.();
+    });
+  }
 
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", sync);

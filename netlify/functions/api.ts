@@ -1,15 +1,18 @@
 import type { Config, Context } from "@netlify/functions";
-import type { CalibrationPoint, InfoCard, StorySubmission } from "../../src/shared/types";
+import type { CalibrationPoint, InfoCard, RipplesAnchor, StorySubmission } from "../../src/shared/types";
+import { normalizeRipplesAnchor } from "../../src/shared/ripplesAnchor";
 import { sanitizeStorySubmissionInput } from "../../src/shared/sanitizeStorySubmission";
 import {
   isAuthorized,
   jsonResponse,
   loadCalibration,
   loadCards,
+  loadRipplesAnchor,
   loadSubmissions,
   newId,
   saveCalibration,
   saveCards,
+  saveRipplesAnchor,
   saveSubmissions,
   unauthorized,
 } from "./_shared/storage";
@@ -198,6 +201,39 @@ function sanitizeCalibration(input: unknown[]): CalibrationPoint[] {
   return points;
 }
 
+function isFiniteRipplesPlacement(placement: RipplesAnchor["loop"]): boolean {
+  return [placement.mapX, placement.mapY, placement.originX, placement.originY, placement.widthRatio].every(
+    Number.isFinite
+  );
+}
+
+async function handleRipplesAnchor(req: Request): Promise<Response> {
+  if (req.method === "GET") {
+    return jsonResponse(await loadRipplesAnchor());
+  }
+
+  if (!isAuthorized(req.headers)) return unauthorized();
+
+  if (req.method === "PUT") {
+    const body = await readJson(req);
+    if (!body || typeof body !== "object") {
+      return jsonResponse({ error: "Expected a ripples anchor object" }, 400);
+    }
+    const anchor = normalizeRipplesAnchor(body);
+    if (
+      (anchor.activeVariant !== "loop" && anchor.activeVariant !== "fade") ||
+      !isFiniteRipplesPlacement(anchor.loop) ||
+      !isFiniteRipplesPlacement(anchor.fade)
+    ) {
+      return jsonResponse({ error: "Invalid ripples anchor" }, 400);
+    }
+    await saveRipplesAnchor(anchor);
+    return jsonResponse(anchor);
+  }
+
+  return jsonResponse({ error: "Method not allowed" }, 405);
+}
+
 async function handleSubmissions(req: Request, path: string): Promise<Response> {
   const method = req.method;
   const submissionId = getSubmissionId(path);
@@ -291,6 +327,10 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 
   if (path.endsWith("/calibration")) {
     return handleCalibration(req);
+  }
+
+  if (path.endsWith("/ripples-anchor")) {
+    return handleRipplesAnchor(req);
   }
 
   if (path.includes("/submissions")) {

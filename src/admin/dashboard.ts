@@ -7,6 +7,7 @@ import {
   deleteCard,
   fetchAllCards,
   fetchCalibration,
+  fetchRipplesAnchor,
   fetchSubmissions,
   geocodeAddress,
   getAdminToken,
@@ -14,7 +15,8 @@ import {
   updateCard,
 } from "../shared/api";
 import { buildProjection, mapXYAdminToOriginal, mapXYOriginalToAdmin, projectLatLng, type Projection } from "../shared/geo";
-import type { CalibrationPoint, GeocodeResult, InfoCard, StorySubmission } from "../shared/types";
+import { findGroupForCardId, groupCardsByLocation, locationKey } from "../shared/locationGroups";
+import type { CalibrationPoint, GeocodeResult, InfoCard, RipplesAnchor, StorySubmission } from "../shared/types";
 import { MAP_ADMIN_CROP, MAP_ADMIN_REFERENCE_PATH } from "../shared/types";
 import { fitCanvasMainPanel, resetCanvasMainPanel } from "./canvasLayout";
 import { createCalibrationPanel } from "./calibrationPanel";
@@ -83,6 +85,7 @@ function renderDashboard(root: HTMLElement): void {
           <button type="button" id="logout-btn" class="admin-btn--pill">Sign Out</button>
         </div>
       </header>
+      <div id="admin-toast" class="admin-toast" role="status" aria-live="polite" hidden></div>
       <div class="admin-layout">
         <section id="edit-cards-section" class="admin-canvas" hidden aria-label="Edit cards">
           <div class="admin-canvas__workspace">
@@ -94,7 +97,7 @@ function renderDashboard(root: HTMLElement): void {
                     <div class="admin-canvas__cards-toolbar">
                       <h2>Cards</h2>
                     </div>
-                    <div class="admin-scroll admin-canvas__cards-body">
+                    <div class="admin-scroll admin-canvas__cards-body admin-list-scroll">
                       <ul id="card-list" class="admin-card-list"></ul>
                     </div>
                     <div class="submission-sidebar__footer">
@@ -133,6 +136,7 @@ function renderDashboard(root: HTMLElement): void {
                         <div class="submission-sidebar__actions">
                           <button type="submit" class="admin-btn--pill">Save</button>
                           <button type="button" id="delete-btn" class="admin-btn--pill admin-btn--pill--purple" disabled>Delete</button>
+                          <button type="button" id="add-entry-btn" class="admin-btn--pill submission-sidebar__actions-full" disabled>Add entry to this pin</button>
                         </div>
                         <p id="form-error" class="admin-error" hidden></p>
                       </div>
@@ -151,7 +155,7 @@ function renderDashboard(root: HTMLElement): void {
                 <div class="admin-canvas__cards-inner">
                   <div class="admin-canvas__cards-view">
                     <div class="admin-canvas__cards-toolbar">
-                      <h2>Calibration points</h2>
+                      <h2>Map calibration</h2>
                     </div>
                     <div id="calibration-side-host" class="calibration-side admin-form admin-form--edit"></div>
                   </div>
@@ -194,7 +198,7 @@ function renderDashboard(root: HTMLElement): void {
                     <div class="admin-canvas__cards-toolbar">
                       <h2>Pending submissions <span id="submission-count" class="admin-badge" hidden>0</span></h2>
                     </div>
-                    <div class="admin-scroll admin-canvas__cards-body">
+                    <div class="admin-scroll admin-canvas__cards-body admin-list-scroll">
                       <ul id="submission-list" class="admin-card-list"></ul>
                     </div>
                     <div class="submission-sidebar__footer">
@@ -226,32 +230,37 @@ function renderDashboard(root: HTMLElement): void {
 
   lockNativeScroll(root.querySelector(".admin") as HTMLElement);
   const cardForm = root.querySelector("#card-form") as HTMLFormElement | null;
-  if (cardForm) setupFormTabs(cardForm);
-  void setupDashboard(root);
+  const activateFormTab = cardForm ? setupFormTabs(cardForm) : null;
+  void setupDashboard(root, activateFormTab);
 }
 
-function setupFormTabs(form: HTMLFormElement): void {
+function setupFormTabs(form: HTMLFormElement): (tabId: string) => void {
   const tabs = form.querySelectorAll<HTMLButtonElement>("[data-form-tab]");
   const panels = form.querySelectorAll<HTMLElement>("[data-form-tabpanel]");
+
+  const activateTab = (tabId: string): void => {
+    tabs.forEach((entry) => {
+      const active = entry.dataset.formTab === tabId;
+      entry.classList.toggle("admin-form__tab--active", active);
+      entry.setAttribute("aria-selected", String(active));
+    });
+
+    panels.forEach((panel) => {
+      const active = panel.dataset.formTabpanel === tabId;
+      panel.hidden = !active;
+      panel.classList.toggle("admin-form__tabpanel--active", active);
+    });
+  };
 
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       const tabId = tab.dataset.formTab;
       if (!tabId) return;
-
-      tabs.forEach((entry) => {
-        const active = entry === tab;
-        entry.classList.toggle("admin-form__tab--active", active);
-        entry.setAttribute("aria-selected", String(active));
-      });
-
-      panels.forEach((panel) => {
-        const active = panel.dataset.formTabpanel === tabId;
-        panel.hidden = !active;
-        panel.classList.toggle("admin-form__tabpanel--active", active);
-      });
+      activateTab(tabId);
     });
   });
+
+  return activateTab;
 }
 
 function lockNativeScroll(container: HTMLElement): void {
@@ -269,18 +278,26 @@ function lockNativeScroll(container: HTMLElement): void {
   container.addEventListener("touchmove", blockNativeScroll, { passive: false });
 }
 
-async function setupDashboard(root: HTMLElement): Promise<void> {
+async function setupDashboard(
+  root: HTMLElement,
+  activateFormTab: ((tabId: string) => void) | null
+): Promise<void> {
   let cards: InfoCard[] = [];
   let submissions: StorySubmission[] = [];
   let calibrationPoints: CalibrationPoint[] = [];
+  let ripplesAnchor: RipplesAnchor | null = null;
   let projection: Projection = buildProjection([]);
   let selectedId: string | null = null;
   let selectedSubmissionId: string | null = null;
+  /** Card ids that share the selected pin’s location (for group drag / save). */
+  let selectedPinSiblingIds: string[] = [];
   let formState = emptyForm();
   let mapEditor: ReturnType<typeof createMapEditor> | null = null;
   let calibrationPanel: ReturnType<typeof createCalibrationPanel> | null = null;
   type EditorPanel = "edit" | "calibrate" | "submissions";
   let activePanel: EditorPanel | null = null;
+  const pendingPreviewEdits = new Map<string, Partial<InfoCard>>();
+  const previewSaveTimers = new Map<string, number>();
 
   const listEl = root.querySelector("#card-list") as HTMLUListElement;
   const submissionListEl = root.querySelector("#submission-list") as HTMLUListElement;
@@ -306,6 +323,26 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   const submissionsToggleBtn = root.querySelector("#submissions-toggle-btn") as HTMLButtonElement;
   const mapHost = root.querySelector("#map-editor-host") as HTMLElement;
   const deleteBtn = root.querySelector("#delete-btn") as HTMLButtonElement;
+  const addEntryBtn = root.querySelector("#add-entry-btn") as HTMLButtonElement;
+  const toastEl = root.querySelector("#admin-toast") as HTMLElement;
+  let toastHideTimer = 0;
+
+  const showToast = (message: string): void => {
+    window.clearTimeout(toastHideTimer);
+    toastEl.textContent = message;
+    toastEl.hidden = false;
+    toastEl.classList.remove("admin-toast--visible");
+    // Retrigger enter animation when toast is already showing.
+    void toastEl.offsetWidth;
+    toastEl.classList.add("admin-toast--visible");
+    toastHideTimer = window.setTimeout(() => {
+      toastEl.classList.remove("admin-toast--visible");
+      toastHideTimer = window.setTimeout(() => {
+        toastEl.hidden = true;
+        toastEl.textContent = "";
+      }, 280);
+    }, 2400);
+  };
   const cardsShelfView = root.querySelector("#cards-shelf-view") as HTMLElement;
   const editShelfView = root.querySelector("#edit-shelf-view") as HTMLElement;
   const impactStoryInput = form.elements.namedItem("body") as HTMLTextAreaElement;
@@ -434,22 +471,28 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
   };
 
   const mountCalibrationPanel = (): void => {
+    if (!ripplesAnchor) return;
     calibrationPanel?.destroy();
-    calibrationPanel = createCalibrationPanel(calibrationSideHost, calibrationMapHost, calibrationPoints, {
-      onChange(points) {
+    calibrationPanel = createCalibrationPanel(calibrationSideHost, calibrationMapHost, calibrationPoints, ripplesAnchor, {
+      onPointsChange(points) {
         applyCalibration(points);
+      },
+      onRipplesChange(anchor) {
+        ripplesAnchor = anchor;
       },
     });
   };
 
   const load = async (): Promise<void> => {
-    const [loadedCards, loadedCalibration, loadedSubmissions] = await Promise.all([
+    const [loadedCards, loadedCalibration, loadedRipplesAnchor, loadedSubmissions] = await Promise.all([
       fetchAllCards(),
       fetchCalibration(),
+      fetchRipplesAnchor(),
       fetchSubmissions(),
     ]);
     cards = loadedCards;
     submissions = loadedSubmissions;
+    ripplesAnchor = loadedRipplesAnchor;
     applyCalibration(loadedCalibration);
     mountCalibrationPanel();
     renderSubmissions();
@@ -698,8 +741,45 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     formState.mapY = pos.mapY;
   };
 
+  const applyGroupPinMove = (mapX: number, mapY: number): void => {
+    formState.mapX = mapX;
+    formState.mapY = mapY;
+    for (const siblingId of selectedPinSiblingIds) {
+      const idx = cards.findIndex((card) => card.id === siblingId);
+      if (idx === -1) continue;
+      cards[idx] = { ...cards[idx], mapX, mapY };
+    }
+  };
+
+  const persistGroupPinMove = async (mapX: number, mapY: number, excludeId: string): Promise<void> => {
+    const targetKey = locationKey(mapX, mapY);
+    const siblings = selectedPinSiblingIds.filter((id) => {
+      if (id === excludeId) return false;
+      const card = cards.find((entry) => entry.id === id);
+      return card ? locationKey(card.mapX, card.mapY) === targetKey : false;
+    });
+    await Promise.all(
+      siblings.map(async (siblingId) => {
+        const saved = await updateCard(siblingId, { mapX, mapY });
+        const idx = cards.findIndex((card) => card.id === saved.id);
+        if (idx !== -1) cards[idx] = saved;
+      })
+    );
+  };
+
+  const refreshSelectedPinSiblings = (): void => {
+    if (!selectedId) {
+      selectedPinSiblingIds = [];
+      return;
+    }
+    const groups = groupCardsByLocation(cards);
+    const group = findGroupForCardId(groups, selectedId);
+    selectedPinSiblingIds = group ? group.cards.map((card) => card.id) : [selectedId];
+  };
+
   const updateCardActions = (): void => {
     deleteBtn.disabled = !selectedId;
+    addEntryBtn.disabled = !selectedId;
   };
 
   const applySavedCard = (saved: InfoCard): void => {
@@ -712,6 +792,7 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     } else {
       cards[idx] = saved;
     }
+    refreshSelectedPinSiblings();
     formTitle.textContent = "Edit card";
     fillForm(form, formState);
     renderList();
@@ -753,12 +834,14 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     if (!card) return;
     selectedId = id;
     formState = { ...card };
+    refreshSelectedPinSiblings();
     formTitle.textContent = "Edit card";
     geocodeResult.textContent = "";
     fillForm(form, formState);
     renderList();
     updateCardActions();
     if (options.openEditor !== false) {
+      activateFormTab?.("details");
       showEditView();
     } else if (activePanel === "edit") {
       refreshMapEditor();
@@ -767,23 +850,84 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
 
   const refreshMapEditor = (): void => {
     const allowSelectedPinDrag = isEditViewOpen();
+    const groups = groupCardsByLocation(cards);
+    const selectedPinId =
+      allowSelectedPinDrag && selectedId ? locationKey(formState.mapX, formState.mapY) : null;
+
     mapEditor?.destroy();
     mapEditor = createMapEditor(
       mapHost,
       {
-        pins: cards.map((c) => ({ id: c.id, label: c.title, mapX: c.mapX, mapY: c.mapY })),
-        selectedId: allowSelectedPinDrag ? selectedId : null,
+        pins: groups.map((group) => ({
+          id: group.key,
+          label:
+            group.cards.length === 1
+              ? group.cards[0].title || "Untitled"
+              : `${group.cards.length} entries`,
+          mapX: group.mapX,
+          mapY: group.mapY,
+        })),
+        selectedId: selectedPinId,
         draftPosition:
           allowSelectedPinDrag && !selectedId ? { mapX: formState.mapX, mapY: formState.mapY } : undefined,
         toDisplayCoords: mapXYOriginalToAdmin,
         fromDisplayCoords: mapXYAdminToOriginal,
         previewCards: cards,
         allowSelectedPinDrag,
+        editablePreview: true,
       },
       {
         onPinMove(mapX, mapY) {
-          formState.mapX = mapX;
-          formState.mapY = mapY;
+          applyGroupPinMove(mapX, mapY);
+        },
+        onPreviewFieldChange(cardId, field, value) {
+          const idx = cards.findIndex((card) => card.id === cardId);
+          if (idx === -1) return;
+
+          const nextValue = value.trim();
+          const previousValue = String(cards[idx][field] ?? "").trim();
+          if (previousValue === nextValue) return;
+
+          const patch: Partial<InfoCard> = { [field]: nextValue };
+          cards[idx] = { ...cards[idx], ...patch };
+
+          if (selectedId === cardId) {
+            const { id: _id, ...state } = cards[idx];
+            formState = state;
+            fillForm(form, formState);
+          }
+
+          const pending = { ...(pendingPreviewEdits.get(cardId) ?? {}), ...patch };
+          pendingPreviewEdits.set(cardId, pending);
+
+          const existingTimer = previewSaveTimers.get(cardId);
+          if (existingTimer) window.clearTimeout(existingTimer);
+          previewSaveTimers.set(
+            cardId,
+            window.setTimeout(async () => {
+              previewSaveTimers.delete(cardId);
+              const toSave = pendingPreviewEdits.get(cardId);
+              if (!toSave) return;
+              pendingPreviewEdits.delete(cardId);
+              try {
+                formError.textContent = "";
+                const saved = await updateCard(cardId, toSave);
+                const savedIdx = cards.findIndex((card) => card.id === saved.id);
+                if (savedIdx !== -1) {
+                  cards[savedIdx] = saved;
+                }
+                if (selectedId === saved.id) {
+                  const { id: _id, ...state } = saved;
+                  formState = state;
+                  fillForm(form, formState);
+                }
+                renderList();
+                showToast("Card saved.");
+              } catch (error) {
+                formError.textContent = error instanceof Error ? error.message : "Save failed.";
+              }
+            }, 700)
+          );
         },
       }
     );
@@ -805,12 +949,41 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
 
   root.querySelector("#new-card-btn")?.addEventListener("click", () => {
     selectedId = null;
+    selectedPinSiblingIds = [];
     formState = emptyForm();
     formTitle.textContent = "New card";
     geocodeResult.textContent = "";
     fillForm(form, formState);
     renderList();
     updateCardActions();
+    activateFormTab?.("details");
+    showEditView();
+    if (activePanel === "edit") {
+      refreshMapEditor();
+    }
+  });
+
+  addEntryBtn.addEventListener("click", () => {
+    if (!selectedId) return;
+    const source = cards.find((card) => card.id === selectedId);
+    if (!source) return;
+
+    selectedId = null;
+    selectedPinSiblingIds = [];
+    formState = {
+      ...emptyForm(),
+      address: source.address,
+      lat: source.lat,
+      lng: source.lng,
+      mapX: source.mapX,
+      mapY: source.mapY,
+    };
+    formTitle.textContent = "New entry at pin";
+    geocodeResult.textContent = "";
+    fillForm(form, formState);
+    renderList();
+    updateCardActions();
+    activateFormTab?.("details");
     showEditView();
     if (activePanel === "edit") {
       refreshMapEditor();
@@ -848,7 +1021,11 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
       const saved = selectedId
         ? await updateCard(selectedId, formState)
         : await createCard(formState);
+      if (selectedId && selectedPinSiblingIds.length > 1) {
+        await persistGroupPinMove(formState.mapX, formState.mapY, saved.id);
+      }
       applySavedCard(saved);
+      showToast("Card saved.");
     } catch (error) {
       formError.textContent = error instanceof Error ? error.message : "Save failed.";
       formError.hidden = false;
@@ -861,12 +1038,14 @@ async function setupDashboard(root: HTMLElement): Promise<void> {
     try {
       await deleteCard(selectedId);
       selectedId = null;
+      selectedPinSiblingIds = [];
       formState = emptyForm();
       fillForm(form, formState);
       formTitle.textContent = "New card";
       updateCardActions();
       showCardsView();
       await load();
+      showToast("Card deleted.");
     } catch (error) {
       formError.textContent = error instanceof Error ? error.message : "Delete failed.";
       formError.hidden = false;

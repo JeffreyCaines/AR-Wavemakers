@@ -1,4 +1,5 @@
-import type { CalibrationPoint, GeocodeResult, InfoCard, StorySubmission, StorySubmissionInput } from "./types";
+import type { CalibrationPoint, GeocodeResult, InfoCard, RipplesAnchor, StorySubmission, StorySubmissionInput } from "./types";
+import { normalizeRipplesAnchor } from "./ripplesAnchor";
 
 const TOKEN_KEY = "ar_admin_token";
 
@@ -86,6 +87,26 @@ export async function saveCalibration(points: CalibrationPoint[]): Promise<Calib
     body: JSON.stringify(points),
   });
   return parseJson<CalibrationPoint[]>(response);
+}
+
+export async function fetchRipplesAnchor(): Promise<RipplesAnchor> {
+  const response = await fetch("/api/ripples-anchor", { headers: authHeaders() });
+  return normalizeRipplesAnchor(await parseJson<RipplesAnchor>(response));
+}
+
+/** Public read for the AR viewer (no admin token). */
+export async function fetchRipplesAnchorConfig(): Promise<RipplesAnchor> {
+  const response = await fetch("/api/ripples-anchor");
+  return normalizeRipplesAnchor(await parseJson<RipplesAnchor>(response));
+}
+
+export async function saveRipplesAnchor(anchor: RipplesAnchor): Promise<RipplesAnchor> {
+  const response = await fetch("/api/ripples-anchor", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(anchor),
+  });
+  return parseJson<RipplesAnchor>(response);
 }
 
 export async function geocodeAddress(query: string): Promise<GeocodeResult> {

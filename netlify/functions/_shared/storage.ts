@@ -1,9 +1,11 @@
 import type { CalibrationPoint, InfoCard, StorySubmission } from "../../../src/shared/types";
-import { SEED_CARDS } from "../../../src/shared/types";
+import { DEFAULT_RIPPLES_ANCHOR, SEED_CARDS, type RipplesAnchor } from "../../../src/shared/types";
+import { normalizeRipplesAnchor } from "../../../src/shared/ripplesAnchor";
 
 const STORE_NAME = "ar-map-cards";
 const BLOB_KEY = "cards.json";
 const CALIBRATION_KEY = "calibration.json";
+const RIPPLES_ANCHOR_KEY = "ripples-anchor.json";
 const SUBMISSIONS_KEY = "submissions.json";
 
 /** Netlify Dev runs a separate Blobs sandbox — use data/*.json so prod exports work locally. */
@@ -111,6 +113,40 @@ export async function saveCalibration(points: CalibrationPoint[]): Promise<void>
     // Fall through to local file storage during dev.
   }
   await saveLocalJson("calibration.json", points);
+}
+
+export async function loadRipplesAnchor(): Promise<RipplesAnchor> {
+  if (useLocalStorage()) {
+    return normalizeRipplesAnchor(await loadLocalJson("ripples-anchor.json", DEFAULT_RIPPLES_ANCHOR));
+  }
+
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    const data = await store.get(RIPPLES_ANCHOR_KEY, { type: "json" });
+    return normalizeRipplesAnchor(data);
+  } catch {
+    // Blobs unavailable (e.g. plain `vite dev`); fall back to a local file.
+  }
+  return normalizeRipplesAnchor(await loadLocalJson("ripples-anchor.json", DEFAULT_RIPPLES_ANCHOR));
+}
+
+export async function saveRipplesAnchor(anchor: RipplesAnchor): Promise<void> {
+  const sanitized = normalizeRipplesAnchor(anchor);
+  if (useLocalStorage()) {
+    await saveLocalJson("ripples-anchor.json", sanitized);
+    return;
+  }
+
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    await store.setJSON(RIPPLES_ANCHOR_KEY, sanitized);
+    return;
+  } catch {
+    // Fall through to local file storage during dev.
+  }
+  await saveLocalJson("ripples-anchor.json", sanitized);
 }
 
 async function loadLocalJson<T>(fileName: string, fallback: T): Promise<T> {

@@ -1,17 +1,113 @@
 import { geocodeAddress, saveCalibration } from "../shared/api";
 import { describeProjection, latLngToMapXY, mapXYAdminToOriginal, mapXYOriginalToAdmin } from "../shared/geo";
-import type { CalibrationPoint } from "../shared/types";
+import type { CalibrationPoint, RipplesAnchor } from "../shared/types";
 import { createMapEditor } from "./mapEditor";
+import { createRipplesAnchorPanel } from "./ripplesAnchorPanel";
+
+export type CalibrationTab = "points" | "ripples";
 
 export interface CalibrationPanelCallbacks {
-  onChange: (points: CalibrationPoint[]) => void;
+  onPointsChange: (points: CalibrationPoint[]) => void;
+  onRipplesChange: (anchor: RipplesAnchor) => void;
 }
 
 export function createCalibrationPanel(
   sideHost: HTMLElement,
   mapHost: HTMLElement,
   initialPoints: CalibrationPoint[],
+  initialRipplesAnchor: RipplesAnchor,
   callbacks: CalibrationPanelCallbacks
+): { refreshMap: () => void; destroy: () => void } {
+  let activeTab: CalibrationTab = "points";
+  let calibrationPoints = [...initialPoints];
+  let ripplesAnchor = { ...initialRipplesAnchor };
+  let pointsPanel: ReturnType<typeof createCalibrationPointsPanel> | null = null;
+  let ripplesPanel: ReturnType<typeof createRipplesAnchorPanel> | null = null;
+
+  sideHost.innerHTML = `
+    <div class="calibration-workspace">
+      <div class="admin-form__tabs calibration-tabs" role="tablist" aria-label="Map calibration">
+        <button type="button" class="admin-form__tab admin-form__tab--active" role="tab" aria-selected="true" data-calibration-tab="points">
+          Calibration points
+        </button>
+        <button type="button" class="admin-form__tab" role="tab" aria-selected="false" data-calibration-tab="ripples">
+          Ripples anchor
+        </button>
+      </div>
+      <div id="calibration-tab-panel" class="calibration-tab-panel"></div>
+    </div>
+  `;
+
+  const tabPanelHost = sideHost.querySelector("#calibration-tab-panel") as HTMLElement;
+  const tabButtons = sideHost.querySelectorAll<HTMLButtonElement>("[data-calibration-tab]");
+
+  const setActiveTab = (tab: CalibrationTab): void => {
+    activeTab = tab;
+    tabButtons.forEach((button) => {
+      const selected = button.dataset.calibrationTab === tab;
+      button.classList.toggle("admin-form__tab--active", selected);
+      button.setAttribute("aria-selected", String(selected));
+    });
+    pointsPanel?.destroy();
+    ripplesPanel?.destroy();
+    pointsPanel = null;
+    ripplesPanel = null;
+    tabPanelHost.replaceChildren();
+
+    if (tab === "points") {
+      pointsPanel = createCalibrationPointsPanel(tabPanelHost, mapHost, calibrationPoints, {
+        onChange: callbacks.onPointsChange,
+        setPoints(points) {
+          calibrationPoints = points;
+        },
+      });
+      return;
+    }
+
+    ripplesPanel = createRipplesAnchorPanel(tabPanelHost, mapHost, ripplesAnchor, {
+      onChange(anchor) {
+        ripplesAnchor = anchor;
+        callbacks.onRipplesChange(anchor);
+      },
+    });
+  };
+
+  tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.calibrationTab;
+      if (tab === "points" || tab === "ripples") {
+        setActiveTab(tab);
+      }
+    });
+  });
+
+  setActiveTab(activeTab);
+
+  return {
+    refreshMap: () => {
+      if (activeTab === "points") {
+        pointsPanel?.refreshMap();
+      } else {
+        ripplesPanel?.refreshMap();
+      }
+    },
+    destroy: () => {
+      pointsPanel?.destroy();
+      ripplesPanel?.destroy();
+    },
+  };
+}
+
+interface CalibrationPointsPanelCallbacks {
+  onChange: (points: CalibrationPoint[]) => void;
+  setPoints: (points: CalibrationPoint[]) => void;
+}
+
+function createCalibrationPointsPanel(
+  sideHost: HTMLElement,
+  mapHost: HTMLElement,
+  initialPoints: CalibrationPoint[],
+  callbacks: CalibrationPointsPanelCallbacks
 ): { getPoints: () => CalibrationPoint[]; refreshMap: () => void; destroy: () => void } {
   let points = [...initialPoints];
   let selectedId: string | null = points[0]?.id ?? null;
@@ -31,7 +127,7 @@ export function createCalibrationPanel(
       </div>
       <p id="calibration-msg" class="calibration__msg admin-muted" hidden></p>
     </div>
-    <div class="admin-scroll calibration-side__scroll">
+    <div class="admin-scroll calibration-side__scroll admin-list-scroll">
       <ul class="calibration__list"></ul>
     </div>
     <div class="submission-sidebar__footer">
@@ -211,6 +307,7 @@ export function createCalibrationPanel(
     showSaveMessage("Saving…");
     try {
       points = await saveCalibration(points);
+      callbacks.setPoints(points);
       callbacks.onChange(points);
       showSaveMessage("Calibration saved.");
       refreshList();

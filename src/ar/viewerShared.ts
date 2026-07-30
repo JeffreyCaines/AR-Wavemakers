@@ -1,37 +1,252 @@
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
-import { buildCardContentHtml } from "../shared/cardContent";
+import {
+  buildCardContentHtml,
+  buildCardDetailWithBackHtml,
+  buildLocationEntryMenuHtml,
+} from "../shared/cardContent";
 import { mapXYToAnchorPosition } from "../shared/geo";
-import type { InfoCard } from "../shared/types";
+import type { LocationGroup } from "../shared/locationGroups";
+import { groupCardsByLocation } from "../shared/locationGroups";
+import type { InfoCard, RipplesAnchorPlacement } from "../shared/types";
 
 export const POINT_THRESHOLD = 0.12;
 export const SHEET_OPEN_DELAY_MS = 2000;
+export const RIPPLES_REVEAL_DELAY_MS = 1000;
+/**
+ * Ms offset for pin targeting unlock relative to “all pins visible”.
+ * Positive = unlock later; negative = unlock earlier (by evaluating reveal ahead of time).
+ */
+export const pinUnlockTimingOffset = 500;
+/** Ignore brief tracking loss after a phone rotate so revealed pins are not wiped. */
+export const ORIENTATION_TRACKING_GRACE_MS = 2000;
 const SHEET_SWIPE_DISMISS_PX = 72;
 const SHEET_DRAG_START_PX = 8;
 
+const measureCornerA = new THREE.Vector3();
+const measureCornerB = new THREE.Vector3();
+const measureCornerC = new THREE.Vector3();
+const measureProjected = new THREE.Vector3();
+const measureScreenA = new THREE.Vector2();
+const measureScreenB = new THREE.Vector2();
+const measureScreenC = new THREE.Vector2();
+
 export interface CardOverlay {
+  group: LocationGroup;
+  /** First card in the group; used for reveal checks that key off coords. */
   card: InfoCard;
+  selectedCardId: string | null;
   markerObject: CSS2DObject;
   panelObject: CSS2DObject;
   marker: HTMLDivElement;
   panel: HTMLDivElement;
 }
 
+export interface RipplesOverlay {
+  object: CSS2DObject;
+  host: HTMLDivElement;
+  img: HTMLImageElement;
+  imageUrl: string;
+  /** Active object URL for the playing GIF; revoked on hide. */
+  objectUrl: string | null;
+}
+
+export function createRipplesOverlay(
+  placement: RipplesAnchorPlacement,
+  aspectRatio: number,
+  imageUrl: string
+): RipplesOverlay {
+  const pos = mapXYToAnchorPosition(placement.mapX, placement.mapY, aspectRatio);
+
+  const host = document.createElement("div");
+  host.className = "ar-ripples-host";
+
+  const img = document.createElement("img");
+  img.alt = "";
+  img.className = "ar-ripples";
+  img.draggable = false;
+  applyRipplesOriginOffset(img, placement.originX, placement.originY);
+  host.append(img);
+
+  const object = new CSS2DObject(host);
+  object.position.set(pos.x, pos.y, 0);
+  object.renderOrder = -1;
+  object.visible = false;
+
+  return { object, host, img, imageUrl, objectUrl: null };
+}
+
+export function measureAnchorMapViewportSize(
+  anchorGroup: THREE.Object3D,
+  camera: THREE.Camera,
+  aspectRatio: number,
+  viewportWidth: number,
+  viewportHeight: number
+): { widthPx: number; heightPx: number } | null {
+  if (viewportWidth <= 0 || viewportHeight <= 0) return null;
+
+  const mapHeight = 1 / (aspectRatio > 0 ? aspectRatio : 1);
+  measureCornerA.set(-0.5, mapHeight / 2, 0);
+  measureCornerB.set(0.5, mapHeight / 2, 0);
+  measureCornerC.set(-0.5, -mapHeight / 2, 0);
+
+  const halfWidth = viewportWidth / 2;
+  const halfHeight = viewportHeight / 2;
+
+  measureProjected.copy(measureCornerA);
+  anchorGroup.localToWorld(measureProjected);
+  measureProjected.project(camera);
+  if (measureProjected.z > 1) return null;
+  measureScreenA.set(measureProjected.x * halfWidth, measureProjected.y * halfHeight);
+
+  measureProjected.copy(measureCornerB);
+  anchorGroup.localToWorld(measureProjected);
+  measureProjected.project(camera);
+  if (measureProjected.z > 1) return null;
+  measureScreenB.set(measureProjected.x * halfWidth, measureProjected.y * halfHeight);
+
+  measureProjected.copy(measureCornerC);
+  anchorGroup.localToWorld(measureProjected);
+  measureProjected.project(camera);
+  if (measureProjected.z > 1) return null;
+  measureScreenC.set(measureProjected.x * halfWidth, measureProjected.y * halfHeight);
+
+  return {
+    widthPx: measureScreenA.distanceTo(measureScreenB),
+    heightPx: measureScreenA.distanceTo(measureScreenC),
+  };
+}
+
+export function updateRipplesOverlayScale(
+  overlay: RipplesOverlay,
+  anchorGroup: THREE.Object3D,
+  camera: THREE.Camera,
+  aspectRatio: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  widthRatio: number
+): void {
+  const mapSize = measureAnchorMapViewportSize(
+    anchorGroup,
+    camera,
+    aspectRatio,
+    viewportWidth,
+    viewportHeight
+  );
+  if (!mapSize) return;
+
+  const widthPx = Math.max(1, Math.round(mapSize.widthPx * widthRatio));
+  overlay.img.style.width = `${widthPx}px`;
+}
+
+function applyRipplesOriginOffset(img: HTMLImageElement, originX: number, originY: number): void {
+  const offsetX = (0.5 - originX) * 100;
+  const offsetY = (0.5 - originY) * 100;
+  img.style.transform = `translate(${offsetX}%, ${offsetY}%)`;
+}
+
+function revokeRipplesObjectUrl(overlay: RipplesOverlay): void {
+  if (overlay.objectUrl) {
+    URL.revokeObjectURL(overlay.objectUrl);
+    overlay.objectUrl = null;
+  }
+}
+
+/**
+ * Fetch GIF bytes without decoding into an <img>.
+ * Avoids starting the browser GIF timeline before we are ready to show frame 0.
+ */
+export async function preloadRipplesBlob(imageUrl: string): Promise<Blob> {
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ripples gif (${response.status})`);
+  }
+  return response.blob();
+}
+
+/**
+ * Start the ripples GIF from frame 0 via a fresh object URL.
+ * `onReady` runs in the same turn the GIF becomes visible (first frame loaded).
+ * Start the pin-reveal clock inside `onReady` only.
+ */
+export function startRipplesFromBlob(
+  overlay: RipplesOverlay,
+  blob: Blob,
+  onReady: () => void
+): void {
+  const img = overlay.img;
+  img.style.transition = "none";
+  overlay.object.visible = false;
+  overlay.host.classList.remove("ar-ripples-host--visible");
+  img.removeAttribute("src");
+  revokeRipplesObjectUrl(overlay);
+
+  const objectUrl = URL.createObjectURL(blob);
+  overlay.objectUrl = objectUrl;
+
+  let settled = false;
+  const finish = (): void => {
+    if (settled) return;
+    settled = true;
+    img.removeEventListener("load", finish);
+    img.removeEventListener("error", finish);
+    // Fresh object URL load ≈ frame 0. Show + clock in this turn — do not reassign src.
+    overlay.object.visible = true;
+    overlay.host.classList.add("ar-ripples-host--visible");
+    onReady();
+  };
+
+  img.addEventListener("load", finish);
+  img.addEventListener("error", finish);
+  img.src = objectUrl;
+
+  if (img.complete && img.naturalWidth > 0) {
+    finish();
+  }
+}
+
+export function hideRipplesOverlay(overlay: RipplesOverlay): void {
+  overlay.object.visible = false;
+  overlay.host.classList.remove("ar-ripples-host--visible");
+  overlay.img.style.removeProperty("transition");
+  overlay.img.removeAttribute("src");
+  revokeRipplesObjectUrl(overlay);
+}
+
 export interface ActiveCardTracker {
-  handleActiveCard: (activeCard: InfoCard | null) => void;
+  handleActiveOverlay: (overlay: CardOverlay | null) => void;
   resetSheetTimer: () => void;
 }
 
 export interface CardDetailSheet {
   show: (card: InfoCard) => void;
+  showLocationGroup: (group: LocationGroup, selectedCardId?: string | null) => void;
   dismiss: () => void;
   dismissFromHistory: () => void;
   isOpen: () => boolean;
   getCardId: () => string | null;
+  getGroupKey: () => string | null;
 }
 
-export function createCardOverlay(card: InfoCard, aspectRatio: number): CardOverlay {
-  const pos = mapXYToAnchorPosition(card.mapX, card.mapY, aspectRatio);
+function renderOverlayPanel(overlay: CardOverlay): void {
+  const { group, panel, selectedCardId } = overlay;
+  if (group.cards.length === 1) {
+    panel.innerHTML = buildCardContentHtml(group.cards[0]);
+    return;
+  }
+  if (selectedCardId) {
+    const detail = group.cards.find((entry) => entry.id === selectedCardId);
+    if (detail) {
+      panel.innerHTML = buildCardDetailWithBackHtml(detail);
+      return;
+    }
+  }
+  panel.innerHTML = buildLocationEntryMenuHtml(group.cards);
+}
+
+export function createLocationOverlay(group: LocationGroup, aspectRatio: number): CardOverlay {
+  const card = group.cards[0];
+  const pos = mapXYToAnchorPosition(group.mapX, group.mapY, aspectRatio);
 
   const markerHost = document.createElement("div");
   markerHost.className = "ar-card-marker-host";
@@ -45,7 +260,6 @@ export function createCardOverlay(card: InfoCard, aspectRatio: number): CardOver
 
   const panel = document.createElement("div");
   panel.className = "ar-card__panel";
-  panel.innerHTML = buildCardContentHtml(card);
   panelHost.append(panel);
 
   const markerObject = new CSS2DObject(markerHost);
@@ -56,7 +270,34 @@ export function createCardOverlay(card: InfoCard, aspectRatio: number): CardOver
   panelObject.position.set(pos.x, pos.y, 0);
   panelObject.renderOrder = 1;
 
-  return { card, markerObject, panelObject, marker, panel };
+  const overlay: CardOverlay = {
+    group,
+    card,
+    selectedCardId: null,
+    markerObject,
+    panelObject,
+    marker,
+    panel,
+  };
+  renderOverlayPanel(overlay);
+  return overlay;
+}
+
+/** @deprecated Prefer createLocationOverlay; kept for single-card call sites. */
+export function createCardOverlay(card: InfoCard, aspectRatio: number): CardOverlay {
+  return createLocationOverlay(
+    {
+      key: `${card.mapX.toFixed(6)}|${card.mapY.toFixed(6)}`,
+      mapX: card.mapX,
+      mapY: card.mapY,
+      cards: [card],
+    },
+    aspectRatio
+  );
+}
+
+export function createOverlaysFromCards(cards: InfoCard[], aspectRatio: number): CardOverlay[] {
+  return groupCardsByLocation(cards).map((group) => createLocationOverlay(group, aspectRatio));
 }
 
 export function updateTrackingUI(statusEl: HTMLElement, tracking: boolean): void {
@@ -74,6 +315,37 @@ export interface PointingOptions {
   thresholdPx?: number;
   viewportWidth?: number;
   viewportHeight?: number;
+  /** When set, only revealed pins can be targeted / shown. */
+  isRevealed?: (card: InfoCard) => boolean;
+}
+
+function overlayIsRevealed(
+  overlay: CardOverlay,
+  isRevealed?: (card: InfoCard) => boolean
+): boolean {
+  if (!isRevealed) return true;
+  return overlay.group.cards.some((card) => isRevealed(card));
+}
+
+/** Apply marker visibility from sheet state + optional ripple reveal gate. */
+export function applyPinVisibility(
+  overlays: CardOverlay[],
+  sheetOpen: boolean,
+  isRevealed?: (card: InfoCard) => boolean
+): void {
+  for (const overlay of overlays) {
+    const revealed = overlayIsRevealed(overlay, isRevealed);
+    const visible = !sheetOpen && revealed;
+    overlay.markerObject.visible = visible;
+    if (!visible) {
+      overlay.marker.classList.remove("ar-card__marker--active", "ar-card__marker--revealed");
+      overlay.panel.classList.remove("ar-card__panel--visible");
+      continue;
+    }
+    if (!overlay.marker.classList.contains("ar-card__marker--revealed")) {
+      overlay.marker.classList.add("ar-card__marker--revealed");
+    }
+  }
 }
 
 export function updatePointing(
@@ -81,10 +353,10 @@ export function updatePointing(
   camera: THREE.Camera,
   sheetOpen: boolean,
   options?: PointingOptions
-): InfoCard | null {
+): CardOverlay | null {
   const center = new THREE.Vector2(0, 0);
   const projected = new THREE.Vector3();
-  let closest: { id: string; distance: number } | null = null;
+  let closest: { key: string; distance: number } | null = null;
   const usePixelThreshold =
     options?.thresholdPx !== undefined &&
     options.viewportWidth !== undefined &&
@@ -92,8 +364,11 @@ export function updatePointing(
     options.viewportWidth > 0 &&
     options.viewportHeight > 0;
   const threshold = usePixelThreshold ? options!.thresholdPx! : POINT_THRESHOLD;
+  const isRevealed = options?.isRevealed;
 
   for (const overlay of overlays) {
+    if (!overlayIsRevealed(overlay, isRevealed)) continue;
+
     overlay.markerObject.getWorldPosition(projected);
     projected.project(camera);
 
@@ -106,26 +381,67 @@ export function updatePointing(
         )
       : center.distanceTo(new THREE.Vector2(projected.x, projected.y));
     if (distance < threshold && (!closest || distance < closest.distance)) {
-      closest = { id: overlay.card.id, distance };
+      closest = { key: overlay.group.key, distance };
     }
   }
 
-  const nextActive = closest?.id ?? null;
+  const nextActive = closest?.key ?? null;
+
+  applyPinVisibility(overlays, sheetOpen, isRevealed);
 
   for (const overlay of overlays) {
-    const isActive = overlay.card.id === nextActive;
-    overlay.markerObject.visible = !sheetOpen;
+    const isActive = overlay.group.key === nextActive;
+    const wasActive = overlay.marker.classList.contains("ar-card__marker--active");
     overlay.marker.classList.toggle("ar-card__marker--active", isActive && !sheetOpen);
     overlay.panel.classList.toggle("ar-card__panel--visible", isActive && !sheetOpen);
+    if (!isActive && wasActive) {
+      overlay.selectedCardId = null;
+      renderOverlayPanel(overlay);
+    }
   }
 
-  return overlays.find((overlay) => overlay.card.id === nextActive)?.card ?? null;
+  return overlays.find((overlay) => overlay.group.key === nextActive) ?? null;
+}
+
+function wirePanelEntrySelection(
+  overlay: CardOverlay,
+  sheet: CardDetailSheet,
+  onSelect: () => void
+): void {
+  overlay.panel.querySelectorAll("[data-card-id]").forEach((node) => {
+    const button = node as HTMLButtonElement;
+    const cardId = button.dataset.cardId;
+    if (!cardId) return;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      overlay.selectedCardId = cardId;
+      renderOverlayPanel(overlay);
+      wirePanelEntrySelection(overlay, sheet, onSelect);
+      const card = overlay.group.cards.find((entry) => entry.id === cardId);
+      if (card) {
+        sheet.showLocationGroup(overlay.group, cardId);
+        onSelect();
+      }
+    });
+  });
+
+  overlay.panel.querySelectorAll('[data-action="back-to-entries"]').forEach((node) => {
+    node.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      overlay.selectedCardId = null;
+      renderOverlayPanel(overlay);
+      wirePanelEntrySelection(overlay, sheet, onSelect);
+    });
+  });
 }
 
 export function createActiveCardTracker(sheet: CardDetailSheet): ActiveCardTracker {
   let sheetTimer: ReturnType<typeof setTimeout> | null = null;
   let loseTargetTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingSheetCardId: string | null = null;
+  let pendingGroupKey: string | null = null;
+  let activeOverlay: CardOverlay | null = null;
 
   const clearSheetTimers = (): void => {
     if (sheetTimer !== null) {
@@ -138,18 +454,31 @@ export function createActiveCardTracker(sheet: CardDetailSheet): ActiveCardTrack
     }
   };
 
+  const openSheetForOverlay = (overlay: CardOverlay): void => {
+    if (overlay.selectedCardId) {
+      sheet.showLocationGroup(overlay.group, overlay.selectedCardId);
+      return;
+    }
+    if (overlay.group.cards.length > 1) {
+      sheet.showLocationGroup(overlay.group, null);
+      return;
+    }
+    sheet.show(overlay.group.cards[0]);
+  };
+
   return {
-    handleActiveCard(activeCard: InfoCard | null): void {
+    handleActiveOverlay(overlay: CardOverlay | null): void {
       if (sheet.isOpen()) {
         return;
       }
 
-      if (!activeCard) {
-        if (pendingSheetCardId && loseTargetTimer === null) {
+      if (!overlay) {
+        if (pendingGroupKey && loseTargetTimer === null) {
           loseTargetTimer = setTimeout(() => {
             loseTargetTimer = null;
             clearSheetTimers();
-            pendingSheetCardId = null;
+            pendingGroupKey = null;
+            activeOverlay = null;
           }, 500);
         }
         return;
@@ -160,23 +489,32 @@ export function createActiveCardTracker(sheet: CardDetailSheet): ActiveCardTrack
         loseTargetTimer = null;
       }
 
-      if (pendingSheetCardId !== activeCard.id) {
+      if (activeOverlay !== overlay) {
+        activeOverlay = overlay;
+        wirePanelEntrySelection(overlay, sheet, () => {
+          clearSheetTimers();
+          pendingGroupKey = null;
+        });
+      }
+
+      if (pendingGroupKey !== overlay.group.key) {
         if (sheetTimer !== null) {
           clearTimeout(sheetTimer);
           sheetTimer = null;
         }
-        pendingSheetCardId = activeCard.id;
+        pendingGroupKey = overlay.group.key;
         sheetTimer = setTimeout(() => {
           sheetTimer = null;
-          if (pendingSheetCardId === activeCard.id && !sheet.isOpen()) {
-            sheet.show(activeCard);
+          if (pendingGroupKey === overlay.group.key && !sheet.isOpen()) {
+            openSheetForOverlay(overlay);
           }
         }, SHEET_OPEN_DELAY_MS);
       }
     },
     resetSheetTimer(): void {
       clearSheetTimers();
-      pendingSheetCardId = null;
+      pendingGroupKey = null;
+      activeOverlay = null;
     },
   };
 }
@@ -189,6 +527,8 @@ export function createCardDetailSheet(
 ): CardDetailSheet {
   let open = false;
   let cardId: string | null = null;
+  let groupKey: string | null = null;
+  let activeGroup: LocationGroup | null = null;
   let historyPushed = false;
   let dragStartY = 0;
   let dragOffset = 0;
@@ -240,6 +580,8 @@ export function createCardDetailSheet(
     if (!open) return;
     open = false;
     cardId = null;
+    groupKey = null;
+    activeGroup = null;
     hideSheet();
     if (!fromHistory && historyPushed) {
       historyPushed = false;
@@ -248,6 +590,49 @@ export function createCardDetailSheet(
       historyPushed = false;
     }
     callbacks.onDismiss();
+  };
+
+  const renderGroupMenu = (group: LocationGroup): void => {
+    content.innerHTML = buildLocationEntryMenuHtml(group.cards);
+    content.querySelectorAll("[data-card-id]").forEach((node) => {
+      const button = node as HTMLButtonElement;
+      const id = button.dataset.cardId;
+      if (!id) return;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        const card = group.cards.find((entry) => entry.id === id);
+        if (!card) return;
+        cardId = card.id;
+        content.innerHTML = buildCardDetailWithBackHtml(card);
+        content.querySelector('[data-action="back-to-entries"]')?.addEventListener("click", (backEvent) => {
+          backEvent.preventDefault();
+          cardId = null;
+          renderGroupMenu(group);
+        });
+      });
+    });
+  };
+
+  const renderGroupDetail = (group: LocationGroup, selectedId: string): void => {
+    const card = group.cards.find((entry) => entry.id === selectedId);
+    if (!card) {
+      renderGroupMenu(group);
+      return;
+    }
+    cardId = card.id;
+    content.innerHTML = buildCardDetailWithBackHtml(card);
+    content.querySelector('[data-action="back-to-entries"]')?.addEventListener("click", (event) => {
+      event.preventDefault();
+      cardId = null;
+      renderGroupMenu(group);
+    });
+  };
+
+  const ensureHistory = (): void => {
+    if (!historyPushed) {
+      history.pushState({ arSheet: true }, "");
+      historyPushed = true;
+    }
   };
 
   backdrop.addEventListener("click", () => dismissInternal(false));
@@ -312,16 +697,35 @@ export function createCardDetailSheet(
 
   return {
     show(card: InfoCard): void {
-      if (open && cardId === card.id) return;
+      if (open && cardId === card.id && !activeGroup) return;
       cardId = card.id;
+      groupKey = null;
+      activeGroup = null;
       open = true;
       content.innerHTML = buildCardContentHtml(card);
-      if (!historyPushed) {
-        history.pushState({ arSheet: true }, "");
-        historyPushed = true;
-      }
+      ensureHistory();
       callbacks.onOpen();
       showSheet();
+    },
+    showLocationGroup(group: LocationGroup, selectedCardId: string | null = null): void {
+      const sameGroup = open && groupKey === group.key;
+      groupKey = group.key;
+      activeGroup = group;
+      open = true;
+      if (selectedCardId) {
+        renderGroupDetail(group, selectedCardId);
+      } else if (group.cards.length === 1) {
+        cardId = group.cards[0].id;
+        content.innerHTML = buildCardContentHtml(group.cards[0]);
+      } else {
+        cardId = null;
+        renderGroupMenu(group);
+      }
+      if (!sameGroup) {
+        ensureHistory();
+        callbacks.onOpen();
+        showSheet();
+      }
     },
     dismiss(): void {
       dismissInternal(false);
@@ -334,6 +738,9 @@ export function createCardDetailSheet(
     },
     getCardId(): string | null {
       return cardId;
+    },
+    getGroupKey(): string | null {
+      return groupKey;
     },
   };
 }
