@@ -1,10 +1,6 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  test: {
-    environment: "node",
-    include: ["src/**/*.test.ts"],
-  },
   optimizeDeps: {
     // mind-ar ships prebuilt bundles; let Vite serve them as-is.
     exclude: ["mind-ar"],
