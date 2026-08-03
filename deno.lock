@@ -12,16 +12,11 @@
     "packageJson": {
       "dependencies": [
         "npm:@netlify/blobs@^10.7.9",
-        "npm:@netlify/functions@^5.3.0",
-        "npm:@types/node@^26.1.1",
-        "npm:@types/three@0.185.1",
+        "npm:@types/three@0.160.0",
         "npm:mind-ar@^1.2.5",
-        "npm:netlify-cli@^26.2.0",
-        "npm:puppeteer@^25.3.0",
         "npm:three@0.160.0",
-        "npm:typescript@^7.0.2",
-        "npm:vite@^8.1.5",
-        "npm:vitest@^4.1.10"
+        "npm:typescript@^5.7.2",
+        "npm:vite@^6.3.5"
       ],
       "overrides": {
         "canvas": "npm:@napi-rs/canvas@^0.1.0"

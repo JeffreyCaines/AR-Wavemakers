@@ -1,87 +1,89 @@
-# AR World Map
+# techNL Wavemakers — NL World Map AR
 
 WebAR experience that tracks a physical wall world map with [MindAR](https://hiukim.github.io/mind-ar-js-doc/)
-image tracking and overlays geo-addressed info cards. Works in **iOS Safari** and
+image tracking and overlays geo-addressed impact cards. Works in **iOS Safari** and
 **Android Chrome** over HTTPS — no app install, no WebXR.
 
-- `/` — AR viewer. Point the phone at the map; aim the crosshair at a location to
-  reveal its impact story.
-- `/admin` — password-gated dashboard to create/edit cards, geocode addresses, and
-  drag pins on the reference image.
+- `/` — landing: choose the real map or the browser simulator
+- `/ar` — live AR viewer. Point the phone at the map; ripples reveal pins; aim the crosshair for a story
+- `/ar-preview` — same UX without a camera or physical map
+- `/admin` — password-gated dashboard for cards, map calibration, ripples placement, and story review
+- `/share-story.html` — public form to submit an impact story for admin approval
 
 ## Stack
 
 | Layer | Choice |
 |-------|--------|
-| Frontend | Vite + TypeScript |
-| AR | MindAR 1.2.5 + Three.js (CSS2DRenderer overlays) |
+| Frontend | Vite + TypeScript (vanilla) |
+| AR | MindAR 1.2.5 + Three.js (CSS2D overlays + procedural ripples) |
 | Hosting | Netlify (auto HTTPS for camera) |
 | API | Netlify Functions (single function at `/api/*`) |
-| Data | Netlify Blobs (`cards.json`); local file fallback in dev |
+| Data | Netlify Blobs; local `data/*.json` fallback in Netlify Dev |
 | Geocoding | OpenStreetMap Nominatim via server-side proxy |
 | Auth | `ADMIN_PASSWORD` bearer token checked in the function |
 
 ## Prerequisites
 
 - Node 18+ (Node 20/22 LTS recommended), npm.
-- A flat reference image of the map — see [`public/README.md`](public/README.md).
-- For local Functions/Blobs testing: the Netlify CLI, installed globally
-  (`npm i -g netlify-cli`) or run on demand with `npx netlify-cli`.
+- Map and ripples assets — see [`public/README.md`](public/README.md).
+- For local Functions/Blobs: Netlify CLI via `npx netlify-cli` (or a global install).
 
 > **`three` is pinned to `0.160.0`** (exact). `mind-ar` 1.2.5 is built against this
 > version and imports the now-removed `sRGBEncoding` export; newer three (0.162+)
-> breaks the bundle. This matches MindAR's official install docs. Do not bump `three`
-> unless `mind-ar` ships a release that supports modern three.
+> breaks the bundle. Do not bump `three` unless `mind-ar` ships a release that
+> supports modern three.
 >
 > **Dependency note:** `mind-ar` pulls in `canvas` (node-canvas) for its Node-side
-> compiler, which needs a C++ toolchain and has no prebuilt binary on the newest
-> Node releases. We never use Node `canvas` (tracking runs in the browser; target
-> compilation runs in Puppeteer's browser), so `package.json` `overrides` redirects
-> `canvas` → `@napi-rs/canvas`, a drop-in that ships prebuilt binaries and needs no
-> compiler. This keeps `npm install` working on any Node version / Windows without
-> Visual Studio Build Tools.
+> compiler. Tracking runs in the browser and target compilation uses Puppeteer, so
+> `package.json` `overrides` redirects `canvas` → `@napi-rs/canvas` (prebuilt
+> binaries, no C++ toolchain).
 
 ## Local development
 
 ```bash
 npm install
-cp .env.example .env        # set ADMIN_PASSWORD
+# create .env with ADMIN_PASSWORD=... (optional: NOMINATIM_EMAIL, GEOCODER_URL)
 ```
+
+There is no committed `.env.example`.
 
 Two ways to run:
 
 ```bash
-# Full stack (recommended) — serves the app + Functions + Blobs emulation.
-# Requires the Netlify CLI (global or npx).
-npm run netlify:dev         # http://localhost:8888
-#   or: npx netlify-cli dev
+# Full stack (recommended) — app + Functions + Blobs on :8888
+# netlify.toml runs Vite on :5173 behind the Netlify Dev gateway.
+npx netlify-cli dev
 
-# Frontend only — API calls are proxied to a separate `netlify dev` on :8888.
+# Frontend only — API calls proxy to a Netlify Dev instance on :8888
 npm run dev                 # http://localhost:5173
 ```
 
 Compile the tracking target once a reference image exists:
 
 ```bash
-npm run compile-target      # writes public/map-target.mind
+node scripts/compile-target.mjs   # writes public/map-target.mind
+# needs puppeteer: npm i -D puppeteer
 ```
 
-Type-check everything (front-end + functions):
+Type-check and build:
 
 ```bash
 npm run typecheck
+npm run build                 # outputs dist/ (index.html + share-story.html)
 ```
+
+Shared unit tests live under `src/shared/*.test.ts` but are not wired in the current `package.json`.
 
 ## Deploy to Netlify
 
 1. Push this repo to GitHub.
 2. In Netlify: **Add new site → Import from Git**.
-   - Build command: `npm run build` (or `npm run build:full` to compile the target on deploy).
-   - Publish directory: `dist`.
-   - Functions directory: `netlify/functions` (auto-detected from `netlify.toml`).
-3. Set environment variables: `ADMIN_PASSWORD` (required), `NOMINATIM_EMAIL` (optional).
-4. Commit `public/map-reference.jpg` and `public/map-target.mind` (or use `build:full`).
-5. Open the Netlify URL on a phone, tap **Start AR**, allow camera, point at the map.
+   - Build command: `npm run build`
+   - Publish directory: `dist`
+   - Functions directory: `netlify/functions` (from `netlify.toml`)
+3. Set environment variables: `ADMIN_PASSWORD` (required), `NOMINATIM_EMAIL` (optional), `GEOCODER_URL` (optional).
+4. Commit `public/map-reference.jpg` and `public/map-target.mind` (or run `node scripts/compile-target.mjs` before deploy).
+5. Open the Netlify URL on a phone → choose the real map → tap **Start AR** → allow camera → point at the map.
 
 ## Data model
 
@@ -105,17 +107,34 @@ interface InfoCard {
 Address flow: geocode → **calibrated** `(mapX, mapY)` when calibration is set → **drag the
 pin** to fine-tune → save.
 
+Admin pin editing uses a cropped wall photo (`map-reference - cropped.jpg`). AR tracking
+uses the full `map-reference.jpg`. Crop offsets live in `MAP_ADMIN_CROP`
+(`src/shared/types.ts`); update them if you replace the crop.
+
 ### Map calibration (required for accurate geocoding)
 
 The wall map is artistic and does **not** match a textbook equirectangular projection.
-Raw lat/lng math will place cities in the wrong ocean. In `/admin`, use **Map calibration**:
+In `/admin`, use **Map calibration**:
 
 1. Add at least **two** well-separated cities you can identify on the map (e.g. Tokyo + London).
 2. Each point is geocoded, then you **drag the orange pin** to its true spot on the reference image.
-3. Click **Save calibration** (stored in Netlify Blobs as `calibration.json`).
+3. Click **Save calibration** (stored as `calibration.json` in Blobs / local data).
 4. Future card geocoding uses the fitted projection (2 points = linear, 3+ = affine).
 
 Until calibration is saved, geocoded pins are approximate — always drag to fine-tune.
+
+### Ripples reveal
+
+On `/ar` and `/ar-preview`, procedural water ripples expand from a St. John's origin and
+progressively reveal location pins. Placement is edited in `/admin` (ripples anchor) and
+stored as `ripples-anchor` config. Viewer masks/GIFs live under `public/assets/` — see
+[`public/README.md`](public/README.md).
+
+### Story submissions
+
+Public visitors submit via `/share-story.html` → stored in `submissions.json`.
+In `/admin`, **approve** creates an inactive card ready for pin placement; **reject** deletes
+the submission.
 
 ## API
 
@@ -129,6 +148,12 @@ Until calibration is saved, geocoded pins are approximate — always drag to fin
 | `GET /api/geocode?q=…` | bearer | Nominatim proxy |
 | `GET /api/calibration` | bearer | Map calibration points |
 | `PUT /api/calibration` | bearer | Save calibration points |
+| `GET /api/ripples-anchor` | public | Ripples placement config |
+| `PUT /api/ripples-anchor` | bearer | Save ripples placement |
+| `POST /api/submissions` | public | Submit a story |
+| `GET /api/submissions` | bearer | List pending submissions |
+| `POST /api/submissions/:id/approve` | bearer | Approve → inactive card |
+| `DELETE /api/submissions/:id` | bearer | Reject / delete |
 
 Auth header: `Authorization: Bearer <ADMIN_PASSWORD>`.
 
@@ -142,7 +167,7 @@ is built to comply for moderate, admin-only use:
 - **Triggered only by the admin** clicking "Geocode address" — no autocomplete, no bulk/periodic queries.
 - **Identifying User-Agent** including your `NOMINATIM_EMAIL` contact when set.
 - **Rate-limited** to ≤1 request/second and **caches** repeated queries within a warm instance.
-- **Switchable without a redeploy** via `GEOCODER_URL` (point at another provider or your own Nominatim instance).
+- **Switchable without a redeploy** via `GEOCODER_URL`.
 - **Attribution** ("© OpenStreetMap contributors") shown in the admin UI.
 
 Set `NOMINATIM_EMAIL` in production. If usage grows beyond moderate, switch
@@ -151,4 +176,5 @@ Set `NOMINATIM_EMAIL` in production. If usage grows beyond moderate, switch
 ## Troubleshooting tracking
 
 Weak or jittery tracking is almost always the reference image, not the code. Retake
-it flat-on, full-frame, glare-free, ≥1500px wide, then `npm run compile-target` again.
+it flat-on, full-frame, glare-free, ≥1500px wide, then run `node scripts/compile-target.mjs`
+again.

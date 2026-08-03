@@ -22,5 +22,9 @@
   },
   "overrides": {
     "canvas": "npm:@napi-rs/canvas@^0.1.0"
+  },
+  "allowScripts": {
+    "core-js@3.29.1": true,
+    "esbuild@0.25.12": true
   }
 }

@@ -1,5 +1,9 @@
 @import url("https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap");
 
+body {
+  margin: 0;
+}
+
 .landing {
   min-height: var(--app-height, 100dvh);
   height: var(--app-height, 100dvh);
