@@ -1,14 +1,14 @@
-# techNL Wavemakers — NL World Map AR
+# Wavemakers
 
 WebAR experience that tracks a physical wall world map with [MindAR](https://hiukim.github.io/mind-ar-js-doc/)
-image tracking and overlays geo-addressed impact cards. Works in **iOS Safari** and
-**Android Chrome** over HTTPS — no app install, no WebXR.
+image tracking and overlays geo-addressed impact cards. Works on mobile browsers
+over HTTPS — no app install, no WebXR.
 
-- `/` — landing: choose the real map or the browser simulator
-- `/ar` — live AR viewer. Point the phone at the map; ripples reveal pins; aim the crosshair for a story
-- `/ar-preview` — same UX without a camera or physical map
-- `/admin` — password-gated dashboard for cards, map calibration, ripples placement, and story review
-- `/share-story.html` — public form to submit an impact story for admin approval
+- `/` - landing: choose the real map or the browser simulator
+- `/ar` - live AR viewer. Point the phone at the map; ripples reveal pins; aim the crosshair for a story
+- `/ar-preview` - same UX without a camera or physical map
+- `/admin` - password-gated dashboard for cards, map calibration, ripples placement, and story review
+- `/share-story.html` - public form to submit an impact story for admin approval
 
 ## Stack
 
@@ -127,7 +127,7 @@ Until calibration is saved, geocoded pins are approximate — always drag to fin
 
 On `/ar` and `/ar-preview`, procedural water ripples expand from a St. John's origin and
 progressively reveal location pins. Placement is edited in `/admin` (ripples anchor) and
-stored as `ripples-anchor` config. Viewer masks/GIFs live under `public/assets/` — see
+stored as `ripples-anchor` config. Viewer masks live under `public/assets/` — see
 [`public/README.md`](public/README.md).
 
 ### Story submissions
@@ -166,7 +166,7 @@ is built to comply for moderate, admin-only use:
 - **Proxied server-side** through the Netlify Function (not called from the browser).
 - **Triggered only by the admin** clicking "Geocode address" — no autocomplete, no bulk/periodic queries.
 - **Identifying User-Agent** including your `NOMINATIM_EMAIL` contact when set.
-- **Rate-limited** to ≤1 request/second and **caches** repeated queries within a warm instance.
+- **Rate-limited** to ≤1 request/second and **caches** repeated queries across cold starts (Netlify Blobs / local `data/geocode-cache.json`, plus an in-memory layer while warm).
 - **Switchable without a redeploy** via `GEOCODER_URL`.
 - **Attribution** ("© OpenStreetMap contributors") shown in the admin UI.
 

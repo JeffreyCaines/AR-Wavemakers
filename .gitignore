@@ -7,4 +7,5 @@ data/cards.json
 data/calibration.json
 data/ripples-anchor.json
 data/submissions.json
+data/geocode-cache.json
 *.bak

@@ -1,4 +1,4 @@
-import type { CalibrationPoint, InfoCard, StorySubmission } from "../../../src/shared/types";
+import type { CalibrationPoint, GeocodeResult, InfoCard, StorySubmission } from "../../../src/shared/types";
 import { DEFAULT_RIPPLES_ANCHOR, SEED_CARDS, type RipplesAnchor } from "../../../src/shared/types";
 import { normalizeRipplesAnchor } from "../../../src/shared/ripplesAnchor";
 
@@ -7,6 +7,7 @@ const BLOB_KEY = "cards.json";
 const CALIBRATION_KEY = "calibration.json";
 const RIPPLES_ANCHOR_KEY = "ripples-anchor.json";
 const SUBMISSIONS_KEY = "submissions.json";
+const GEOCODE_CACHE_KEY = "geocode-cache.json";
 
 /** Netlify Dev runs a separate Blobs sandbox — use data/*.json so prod exports work locally. */
 function useLocalStorage(): boolean {
@@ -201,6 +202,47 @@ export async function saveSubmissions(submissions: StorySubmission[]): Promise<v
     // Fall through to local file storage during dev.
   }
   await saveLocalJson("submissions.json", submissions);
+}
+
+function isGeocodeCache(value: unknown): value is Record<string, GeocodeResult> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return true;
+}
+
+export async function loadGeocodeCache(): Promise<Record<string, GeocodeResult>> {
+  if (useLocalStorage()) {
+    const data = await loadLocalJson<unknown>("geocode-cache.json", {});
+    return isGeocodeCache(data) ? data : {};
+  }
+
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    const data = await store.get(GEOCODE_CACHE_KEY, { type: "json" });
+    if (isGeocodeCache(data)) return data;
+    return {};
+  } catch {
+    // Blobs unavailable (e.g. plain `vite dev`); fall back to a local file.
+  }
+  const data = await loadLocalJson<unknown>("geocode-cache.json", {});
+  return isGeocodeCache(data) ? data : {};
+}
+
+export async function saveGeocodeCache(cache: Record<string, GeocodeResult>): Promise<void> {
+  if (useLocalStorage()) {
+    await saveLocalJson("geocode-cache.json", cache);
+    return;
+  }
+
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    await store.setJSON(GEOCODE_CACHE_KEY, cache);
+    return;
+  } catch {
+    // Fall through to local file storage during dev.
+  }
+  await saveLocalJson("geocode-cache.json", cache);
 }
 
 export function isAuthorized(headers: Headers): boolean {

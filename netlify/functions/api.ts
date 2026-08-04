@@ -7,11 +7,13 @@ import {
   jsonResponse,
   loadCalibration,
   loadCards,
+  loadGeocodeCache,
   loadRipplesAnchor,
   loadSubmissions,
   newId,
   saveCalibration,
   saveCards,
+  saveGeocodeCache,
   saveRipplesAnchor,
   saveSubmissions,
   unauthorized,
@@ -20,10 +22,12 @@ import {
 const DEFAULT_GEOCODER_URL = "https://nominatim.openstreetmap.org/search";
 // Nominatim usage policy: absolute max of 1 request/second.
 const MIN_GEOCODE_INTERVAL_MS = 1100;
+const MAX_GEOCODE_CACHE_ENTRIES = 500;
 
 // Module-scoped state persists across warm function invocations: cache repeated
 // queries (policy requirement) and rate-limit outbound requests.
 const geocodeCache = new Map<string, { lat: number; lng: number; displayName: string }>();
+let geocodeCacheHydrated = false;
 let lastGeocodeAt = 0;
 
 function sleep(ms: number): Promise<void> {
@@ -108,6 +112,16 @@ async function handleGeocode(req: Request, url: URL): Promise<Response> {
   const cached = geocodeCache.get(cacheKey);
   if (cached) return jsonResponse(cached);
 
+  if (!geocodeCacheHydrated) {
+    const persisted = await loadGeocodeCache();
+    for (const [key, value] of Object.entries(persisted)) {
+      if (!geocodeCache.has(key)) geocodeCache.set(key, value);
+    }
+    geocodeCacheHydrated = true;
+    const hydrated = geocodeCache.get(cacheKey);
+    if (hydrated) return jsonResponse(hydrated);
+  }
+
   // Endpoint is configurable so the geocoding service can be switched at the
   // provider's request without a code change/redeploy (Nominatim policy).
   const endpoint = process.env.GEOCODER_URL || DEFAULT_GEOCODER_URL;
@@ -153,8 +167,14 @@ async function handleGeocode(req: Request, url: URL): Promise<Response> {
   };
 
   // Cache results so repeated identical queries are not re-sent (policy requirement).
-  if (geocodeCache.size > 500) geocodeCache.clear();
+  // Persist across cold starts via Blobs / local file.
+  while (geocodeCache.size >= MAX_GEOCODE_CACHE_ENTRIES) {
+    const oldest = geocodeCache.keys().next().value;
+    if (oldest === undefined) break;
+    geocodeCache.delete(oldest);
+  }
   geocodeCache.set(cacheKey, result);
+  await saveGeocodeCache(Object.fromEntries(geocodeCache));
 
   return jsonResponse(result);
 }
