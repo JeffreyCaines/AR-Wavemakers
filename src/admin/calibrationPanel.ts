@@ -1,7 +1,7 @@
 import { geocodeAddress, saveCalibration } from "../shared/api";
 import { describeProjection, latLngToMapXY, mapXYAdminToOriginal, mapXYOriginalToAdmin } from "../shared/geo";
 import type { CalibrationPoint, RipplesAnchor } from "../shared/types";
-import { createMapEditor } from "./mapEditor";
+import { createMapEditor, type MapEditorBackdrop } from "./mapEditor";
 import { createRipplesAnchorPanel } from "./ripplesAnchorPanel";
 
 export type CalibrationTab = "points" | "ripples";
@@ -16,7 +16,8 @@ export function createCalibrationPanel(
   mapHost: HTMLElement,
   initialPoints: CalibrationPoint[],
   initialRipplesAnchor: RipplesAnchor,
-  callbacks: CalibrationPanelCallbacks
+  callbacks: CalibrationPanelCallbacks,
+  backdrop: MapEditorBackdrop = "image"
 ): { refreshMap: () => void; destroy: () => void } {
   let activeTab: CalibrationTab = "points";
   let calibrationPoints = [...initialPoints];
@@ -60,7 +61,7 @@ export function createCalibrationPanel(
         setPoints(points) {
           calibrationPoints = points;
         },
-      });
+      }, backdrop);
       return;
     }
 
@@ -69,7 +70,7 @@ export function createCalibrationPanel(
         ripplesAnchor = anchor;
         callbacks.onRipplesChange(anchor);
       },
-    });
+    }, backdrop);
   };
 
   tabButtons.forEach((button) => {
@@ -107,7 +108,8 @@ function createCalibrationPointsPanel(
   sideHost: HTMLElement,
   mapHost: HTMLElement,
   initialPoints: CalibrationPoint[],
-  callbacks: CalibrationPointsPanelCallbacks
+  callbacks: CalibrationPointsPanelCallbacks,
+  backdrop: MapEditorBackdrop = "image"
 ): { getPoints: () => CalibrationPoint[]; refreshMap: () => void; destroy: () => void } {
   let points = [...initialPoints];
   let selectedId: string | null = points[0]?.id ?? null;
@@ -118,7 +120,8 @@ function createCalibrationPointsPanel(
       <p id="calibration-help" class="calibration__help">
         This map is artistic and does not match real-world geography. Add at least
         <strong>two</strong> cities you can identify on the wall map, drag each pin
-        to its true spot, then save. Future geocoding uses that fit.
+        to its true spot (or nudge with arrow keys / WASD; hold Shift for fine steps),
+        then save. Future geocoding uses that fit.
       </p>
       <p id="calibration-status" class="admin-muted calibration__status"></p>
       <div class="calibration__add">
@@ -147,6 +150,14 @@ function createCalibrationPointsPanel(
   const msgEl = sideHost.querySelector("#calibration-msg") as HTMLElement;
   const helpEl = sideHost.querySelector("#calibration-help") as HTMLElement;
   const defaultAddressPlaceholder = "City, Country";
+  if (backdrop === "model3d") {
+    helpEl.innerHTML = `
+      Pins sit on the 3D map (top-down). Add at least
+      <strong>two</strong> cities you can identify, drag each pin
+      to its true spot (or nudge with arrow keys / WASD; hold Shift for fine steps),
+      then save. Coords stay in the same space as the photo admin.
+    `;
+  }
 
   mapHost.replaceChildren();
 
@@ -239,6 +250,7 @@ function createCalibrationPointsPanel(
         pins: points.map((p) => ({ id: p.id, label: p.label, mapX: p.mapX, mapY: p.mapY })),
         selectedId,
         pinClass: "map-editor__pin--calibration",
+        backdrop,
         toDisplayCoords: mapXYOriginalToAdmin,
         fromDisplayCoords: mapXYAdminToOriginal,
         getPreviewHtml: buildCalibrationPreviewHtml,
@@ -278,7 +290,7 @@ function createCalibrationPointsPanel(
       selectedId = point.id;
       addressInput.value = "";
       setAddressPlaceholder();
-      showSaveMessage("Drag the teal pin to the correct spot on the map, then save.");
+      showSaveMessage("Drag or nudge (arrows / WASD) the teal pin to the correct spot, then save.");
       refreshList();
       refreshMap();
       refreshStatus();

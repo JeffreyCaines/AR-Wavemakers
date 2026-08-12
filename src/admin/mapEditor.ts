@@ -1,13 +1,21 @@
 import {
-  buildCardContentHtml,
-  buildCardDetailWithBackHtml,
+  buildCardPreviewHtml,
+  buildCardPreviewWithBackHtml,
   buildLocationEntryMenuHtml,
-  type CardContentField,
 } from "../shared/cardContent";
 import { locationKey } from "../shared/locationGroups";
-import { MAP_ADMIN_REFERENCE_PATH, type InfoCard, type RipplesVariant } from "../shared/types";
+import {
+  MAP_ADMIN_CROP,
+  MAP_ADMIN_REFERENCE_PATH,
+  type InfoCard,
+  type RipplesVariant,
+} from "../shared/types";
 import { getCanvasCardsMinWidth, getCanvasRowGap } from "./canvasLayout";
+import { mountMapModelBackdrop, type MapModelBackdrop } from "./mapModelBackdrop";
 import { createRipplesMapPreview, type RipplesMapPreview } from "./ripplesMapPreview";
+
+/** Image = cropped wall photo. model3d = top-down AR map mesh (same crop coord space). */
+export type MapEditorBackdrop = "image" | "model3d";
 
 export interface PinDatum {
   id: string;
@@ -33,9 +41,9 @@ export interface MapRipplesShader {
 
 export interface MapEditorCallbacks {
   onPinMove: (mapX: number, mapY: number) => void;
-  /** Fired when an editable preview field changes (debounced save owned by caller). */
-  onPreviewFieldChange?: (cardId: string, field: CardContentField, value: string) => void;
   onOverlayMove?: (mapX: number, mapY: number) => void;
+  /** Compact/touch UI: tap a pin instead of hovering for preview. */
+  onPinActivate?: (pinId: string) => void;
 }
 
 export interface MapEditorOptions {
@@ -45,6 +53,8 @@ export interface MapEditorOptions {
   /** Extra CSS class on each pin (e.g. calibration vs card pins). */
   pinClass?: string;
   imagePath?: string;
+  /** `image` (default) uses the cropped reference JPEG; `model3d` uses the AR mesh. */
+  backdrop?: MapEditorBackdrop;
   /** Convert stored coords to the displayed image space. Defaults to identity. */
   toDisplayCoords?: (mapX: number, mapY: number) => { mapX: number; mapY: number };
   /** Convert displayed image coords back to stored space. Defaults to identity. */
@@ -61,8 +71,6 @@ export interface MapEditorOptions {
   ripplesShader?: MapRipplesShader;
   /** Drag on the shader canvas moves the ripple origin. */
   allowRipplesOriginDrag?: boolean;
-  /** When true with previewCards, popup fields can be double-clicked to edit. */
-  editablePreview?: boolean;
 }
 
 const MIN_SCALE = 1;
@@ -78,6 +86,12 @@ const PREVIEW_SAFE_BLUR_MASK_BLEED_PX = 1.5;
 const PREVIEW_PIN_MASK_INSET_PX = 1;
 const PIN_LAYOUT_SIZE_PX = 18;
 const PIN_EMPHASIS_SCALE = 1.35;
+/** Match stacked admin canvas; hover popups are impractical here. */
+const COMPACT_POINTER_MQ = "(max-width: 900px)";
+const PIN_ACTIVATE_MOVE_PX = 10;
+/** Display-space nudge for arrow/WASD pin moves (Shift = fine). */
+const PIN_NUDGE_STEP = 0.002;
+const PIN_NUDGE_STEP_FINE = 0.0004;
 
 type PreviewPlacement = "top" | "right" | "bottom" | "left" | "translated";
 type PreviewFacingEdge = "top" | "right" | "bottom" | "left";
@@ -168,30 +182,37 @@ export function createMapEditor(
     draftPosition,
     pinClass,
     imagePath = MAP_ADMIN_REFERENCE_PATH,
+    backdrop = "image",
     toDisplayCoords = (mapX, mapY) => ({ mapX, mapY }),
     fromDisplayCoords = (mapX, mapY) => ({ mapX, mapY }),
     previewCards,
     getPreviewHtml,
     allowSelectedPinDrag = false,
-    editablePreview = false,
     imageOverlay,
     allowOverlayDrag = false,
     ripplesShader,
     allowRipplesOriginDrag = false,
   } = options;
-  const { onPinMove, onPreviewFieldChange, onOverlayMove } = callbacks;
-  const previewInlineEdit = Boolean(editablePreview && previewCards?.length && onPreviewFieldChange);
+  const { onPinMove, onOverlayMove, onPinActivate } = callbacks;
+  const useModelBackdrop = backdrop === "model3d";
+
+  const surfaceHtml = useModelBackdrop
+    ? `<div class="map-editor__model-slot" aria-hidden="true"></div>`
+    : `<img src="${imagePath}" alt="Map reference" class="map-editor__image" draggable="false" />`;
+  const missingHtml = useModelBackdrop
+    ? `Could not load the 3D map model.`
+    : `Add <code>public/map-reference - cropped.jpg</code> to place pins visually.`;
 
   container.innerHTML = `
-    <div class="map-editor">
+    <div class="map-editor${useModelBackdrop ? " map-editor--model3d" : ""}">
       <div class="map-editor__viewport">
         <div class="map-editor__stage">
-          <img src="${imagePath}" alt="Map reference" class="map-editor__image" draggable="false" />
+          ${surfaceHtml}
           <div class="map-editor__pins"></div>
         </div>
       </div>
       <div class="map-editor__missing" hidden>
-        Add <code>public/map-reference - cropped.jpg</code> to place pins visually.
+        ${missingHtml}
       </div>
     </div>
   `;
@@ -199,9 +220,20 @@ export function createMapEditor(
   const mapEditor = container.querySelector(".map-editor") as HTMLElement;
   const viewport = container.querySelector(".map-editor__viewport") as HTMLElement;
   const stage = container.querySelector(".map-editor__stage") as HTMLElement;
-  const image = container.querySelector(".map-editor__image") as HTMLImageElement;
-  const missing = container.querySelector(".map-editor__missing") as HTMLElement;
   const pinsLayer = container.querySelector(".map-editor__pins") as HTMLElement;
+  const modelSlot = useModelBackdrop
+    ? (container.querySelector(".map-editor__model-slot") as HTMLElement)
+    : null;
+  const image = useModelBackdrop
+    ? null
+    : (container.querySelector(".map-editor__image") as HTMLImageElement);
+  let surface: HTMLElement = (image ?? modelSlot) as HTMLElement;
+  const missing = container.querySelector(".map-editor__missing") as HTMLElement;
+  let modelBackdrop: MapModelBackdrop | null = null;
+  let modelBackdropDisposed = false;
+  let surfaceAspectWidth = MAP_ADMIN_CROP.width as number;
+  let surfaceAspectHeight = MAP_ADMIN_CROP.height as number;
+  let surfaceReady = !useModelBackdrop;
   const fitContainer =
     (container.closest(".admin-layout") as HTMLElement | null) ??
     (container.closest(".admin-canvas") as HTMLElement | null) ??
@@ -232,10 +264,11 @@ export function createMapEditor(
     const stacked = row ? getComputedStyle(row).flexDirection === "column" : false;
 
     if (stacked) {
-      const cardsHeight = cardsPanel.getBoundingClientRect().height;
+      // Reserve menu space so cards can flex-fill leftover height below the map.
+      const minCardsHeight = Math.min(360, Math.max(220, innerHeight * 0.4));
       return {
         width: innerWidth,
-        height: Math.max(1, innerHeight - cardsHeight - gap),
+        height: Math.max(1, innerHeight - minCardsHeight - gap),
       };
     }
 
@@ -257,13 +290,26 @@ export function createMapEditor(
   let previewCardId: string | null = null;
   /** When set, multi-entry pin preview shows this card’s detail instead of the menu. */
   let previewDetailCardId: string | null = null;
+  /** True only after the user picked an entry from the location menu (shows Back). */
+  let previewDetailFromEntryMenu = false;
   /**
    * After Back to the entry list, freeze safe-zone / blur updates until the pointer
    * re-enters the panel so a smaller menu cannot dismiss the preview immediately.
    */
   let previewSafeBoundsLockedUntilHover = false;
-  let previewFieldEditing = false;
   const previewEnabled = Boolean(previewCards?.length || getPreviewHtml);
+  const compactPointerMq = window.matchMedia(COMPACT_POINTER_MQ);
+  let pendingPinActivateId: string | null = null;
+  let pendingPinActivateX = 0;
+  let pendingPinActivateY = 0;
+
+  function isCompactPointerUi(): boolean {
+    return compactPointerMq.matches;
+  }
+
+  function hoverPreviewsActive(): boolean {
+    return previewEnabled && !isCompactPointerUi();
+  }
   let overlayHost: HTMLElement | null = null;
   let overlayImg: HTMLImageElement | null = null;
   let overlayState: MapImageOverlay | null = imageOverlay ? { ...imageOverlay } : null;
@@ -294,14 +340,16 @@ export function createMapEditor(
       if (groupCards.length === 0) return null;
 
       if (groupCards.length === 1) {
-        return buildCardContentHtml(groupCards[0], { editable: previewInlineEdit });
+        return buildCardPreviewHtml(groupCards[0]);
       }
 
       if (previewDetailCardId) {
         const detail =
           groupCards.find((entry) => entry.id === previewDetailCardId) ?? null;
         if (detail) {
-          return buildCardDetailWithBackHtml(detail, { editable: previewInlineEdit });
+          return previewDetailFromEntryMenu
+            ? buildCardPreviewWithBackHtml(detail)
+            : buildCardPreviewHtml(detail);
         }
       }
 
@@ -322,7 +370,8 @@ export function createMapEditor(
   let panOriginX = 0;
   let panOriginY = 0;
 
-  image.addEventListener("error", () => {
+  image?.addEventListener("error", () => {
+    if (!image) return;
     image.style.display = "none";
     missing.hidden = false;
   });
@@ -331,23 +380,35 @@ export function createMapEditor(
     const previousTransform = stage.style.transform;
     stage.style.transform = "none";
 
-    const nw = image.naturalWidth;
-    const nh = image.naturalHeight;
     const { width: fitWidth, height: fitHeight } = getFitBounds();
+    let aspectW = surfaceAspectWidth;
+    let aspectH = surfaceAspectHeight;
 
-    if (nw > 0 && nh > 0 && fitWidth >= 1 && fitHeight >= 1) {
-      const fitScale = Math.min(fitWidth / nw, fitHeight / nh);
-      stageWidth = nw * fitScale;
-      stageHeight = nh * fitScale;
+    if (image) {
+      const nw = image.naturalWidth;
+      const nh = image.naturalHeight;
+      if (nw > 0 && nh > 0) {
+        aspectW = nw;
+        aspectH = nh;
+        surfaceAspectWidth = nw;
+        surfaceAspectHeight = nh;
+      }
+    }
+
+    if (aspectW > 0 && aspectH > 0 && fitWidth >= 1 && fitHeight >= 1) {
+      const fitScale = Math.min(fitWidth / aspectW, fitHeight / aspectH);
+      stageWidth = aspectW * fitScale;
+      stageHeight = aspectH * fitScale;
       container.style.width = `${stageWidth}px`;
       container.style.height = `${stageHeight}px`;
       mapEditor.style.width = "100%";
       mapEditor.style.height = "100%";
-      image.style.width = `${stageWidth}px`;
-      image.style.height = `${stageHeight}px`;
+      surface.style.width = `${stageWidth}px`;
+      surface.style.height = `${stageHeight}px`;
+      syncModelBackdropView();
     } else {
-      stageWidth = image.offsetWidth;
-      stageHeight = image.offsetHeight;
+      stageWidth = surface.offsetWidth;
+      stageHeight = surface.offsetHeight;
     }
 
     viewport.style.height = stageHeight > 0 ? `${stageHeight}px` : "";
@@ -356,9 +417,31 @@ export function createMapEditor(
     if (stageHeight > 0) {
       const row = (canvasSection ?? fitContainer).querySelector(".admin-canvas__row") as HTMLElement | null;
       const cardsPanel = (canvasSection ?? fitContainer).querySelector(".admin-canvas__cards") as HTMLElement | null;
-      if (row) row.style.height = `${stageHeight}px`;
-      if (cardsPanel) cardsPanel.style.height = `${stageHeight}px`;
+      const stacked = row ? getComputedStyle(row).flexDirection === "column" : false;
+      if (stacked) {
+        // CSS flex fills leftover height under the map on narrow viewports.
+        if (row) row.style.height = "";
+        if (cardsPanel) cardsPanel.style.height = "";
+      } else {
+        if (row) row.style.height = `${stageHeight}px`;
+        if (cardsPanel) cardsPanel.style.height = `${stageHeight}px`;
+      }
     }
+  }
+
+  function syncModelBackdropView(): void {
+    if (!modelBackdrop || stageWidth <= 0 || stageHeight <= 0) return;
+    const viewportWidth = viewport.clientWidth || stageWidth;
+    const viewportHeight = viewport.clientHeight || stageHeight;
+    modelBackdrop.syncView({
+      viewportWidth,
+      viewportHeight,
+      stageWidth,
+      stageHeight,
+      scale,
+      translateX,
+      translateY,
+    });
   }
 
   function applyTransform(): void {
@@ -367,6 +450,7 @@ export function createMapEditor(
       translateX = 0;
       translateY = 0;
       stage.style.transform = "translate3d(0px, 0px, 0) scale(1)";
+      syncModelBackdropView();
       applyZoomCompensation();
       return;
     }
@@ -375,29 +459,30 @@ export function createMapEditor(
       stage.style.transform = `translate3d(${translateX}px, ${translateY}px, 0) scale(${scale})`;
 
       const viewportRect = viewport.getBoundingClientRect();
-      const imageRect = image.getBoundingClientRect();
+      const surfaceRect = surface.getBoundingClientRect();
       let adjusted = false;
 
-      if (imageRect.right < viewportRect.right - 0.5) {
-        translateX += viewportRect.right - imageRect.right;
+      if (surfaceRect.right < viewportRect.right - 0.5) {
+        translateX += viewportRect.right - surfaceRect.right;
         adjusted = true;
       }
-      if (imageRect.bottom < viewportRect.bottom - 0.5) {
-        translateY += viewportRect.bottom - imageRect.bottom;
+      if (surfaceRect.bottom < viewportRect.bottom - 0.5) {
+        translateY += viewportRect.bottom - surfaceRect.bottom;
         adjusted = true;
       }
-      if (imageRect.left > viewportRect.left + 0.5) {
-        translateX += viewportRect.left - imageRect.left;
+      if (surfaceRect.left > viewportRect.left + 0.5) {
+        translateX += viewportRect.left - surfaceRect.left;
         adjusted = true;
       }
-      if (imageRect.top > viewportRect.top + 0.5) {
-        translateY += viewportRect.top - imageRect.top;
+      if (surfaceRect.top > viewportRect.top + 0.5) {
+        translateY += viewportRect.top - surfaceRect.top;
         adjusted = true;
       }
 
       if (!adjusted) break;
     }
 
+    syncModelBackdropView();
     applyZoomCompensation();
   }
 
@@ -617,11 +702,14 @@ export function createMapEditor(
     positionImageOverlay();
   }
 
+  let pendingRipplesMount: (() => void) | null = null;
+
   function mountRipplesPreview(): void {
     if (!ripplesShader || ripplesPreview) return;
 
     const start = (): void => {
-      if (image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+      if (!surfaceReady) return;
+      if (image && (image.naturalWidth <= 0 || image.naturalHeight <= 0)) return;
       void createRipplesMapPreview(pinsLayer, {
         variant: ripplesShader.variant,
         originMapX: ripplesOrigin?.mapX ?? ripplesShader.originMapX,
@@ -638,11 +726,39 @@ export function createMapEditor(
       });
     };
 
-    if (image.complete && image.naturalWidth > 0) {
+    if (surfaceReady) {
       start();
-    } else {
+    } else if (image) {
       image.addEventListener("load", start, { once: true });
+    } else {
+      // model3d: start() runs from startModelBackdrop once ready.
+      pendingRipplesMount = start;
     }
+  }
+
+  function startModelBackdrop(): void {
+    // Canvas lives on the viewport (fixed res). Stage keeps a slot for pin/CSS layout.
+    void mountMapModelBackdrop(viewport, stage, () => modelBackdropDisposed)
+      .then((backdrop) => {
+        if (modelBackdropDisposed) {
+          backdrop.dispose();
+          return;
+        }
+        modelBackdrop = backdrop;
+        surfaceAspectWidth = backdrop.aspectWidth;
+        surfaceAspectHeight = backdrop.aspectHeight;
+        surfaceReady = true;
+        // Keep the in-stage slot as the layout/clamp surface (CSS-scaled with pins).
+        if (modelSlot) surface = modelSlot;
+        updateStageMetrics();
+        pendingRipplesMount?.();
+        pendingRipplesMount = null;
+      })
+      .catch(() => {
+        if (modelBackdropDisposed) return;
+        if (modelSlot) modelSlot.style.display = "none";
+        missing.hidden = false;
+      });
   }
 
   function updateStageMetrics(): void {
@@ -660,7 +776,13 @@ export function createMapEditor(
   });
   resizeObserver.observe(fitContainer);
 
-  image.addEventListener("load", updateStageMetrics);
+  image?.addEventListener("load", updateStageMetrics);
+
+  if (useModelBackdrop) {
+    // Fit using crop aspect until the mesh AABB is known.
+    updateStageMetrics();
+    startModelBackdrop();
+  }
 
   function ensurePreviewLayer(): void {
     if (previewHost) return;
@@ -715,42 +837,13 @@ export function createMapEditor(
 
   function hidePreview(): void {
     if (!previewHost) return;
-    if (previewFieldEditing) return;
     previewHost.hidden = true;
     previewCardId = null;
     previewDetailCardId = null;
+    previewDetailFromEntryMenu = false;
     previewSafeBoundsLockedUntilHover = false;
     setPreviewPinHighlight(null);
     updatePreviewSafeBlur();
-  }
-
-  function isCardContentField(value: string): value is CardContentField {
-    return (
-      value === "title" ||
-      value === "companyName" ||
-      value === "address" ||
-      value === "body" ||
-      value === "imageUrl" ||
-      value === "linkUrl"
-    );
-  }
-
-  function emitPreviewFieldChange(cardId: string, field: CardContentField, value: string): void {
-    onPreviewFieldChange?.(cardId, field, value);
-  }
-
-  function refreshPreviewContent(cardId: string): void {
-    if (!previewPanel || previewHost?.hidden) return;
-    const pinId = previewCardId;
-    if (!pinId) return;
-    const editingId = previewDetailCardId ?? cardId;
-    if (editingId !== cardId && previewDetailCardId !== cardId) return;
-    const html = resolvePreviewHtml(pinId);
-    if (!html) return;
-    previewPanel.innerHTML = html;
-    wirePreviewNavigation(pinId);
-    wirePreviewInlineEdit(previewDetailCardId ?? cardId);
-    repositionActivePreview();
   }
 
   function wirePreviewNavigation(pinId: string): void {
@@ -765,11 +858,11 @@ export function createMapEditor(
         event.stopPropagation();
         previewSafeBoundsLockedUntilHover = false;
         previewDetailCardId = cardId;
+        previewDetailFromEntryMenu = true;
         const html = resolvePreviewHtml(pinId);
         if (!html || !previewPanel) return;
         previewPanel.innerHTML = html;
         wirePreviewNavigation(pinId);
-        wirePreviewInlineEdit(cardId);
         repositionActivePreview();
       });
     });
@@ -781,6 +874,7 @@ export function createMapEditor(
         // Lock first so ResizeObserver / zoom compensation cannot race the layout.
         previewSafeBoundsLockedUntilHover = true;
         previewDetailCardId = null;
+        previewDetailFromEntryMenu = false;
         const html = resolvePreviewHtml(pinId);
         if (!html || !previewPanel) {
           previewSafeBoundsLockedUntilHover = false;
@@ -813,120 +907,6 @@ export function createMapEditor(
     previewSafeBoundsLockedUntilHover = false;
     updatePreviewSafeBlur();
     return false;
-  }
-
-  function beginUrlFieldEdit(el: HTMLElement, cardId: string, field: CardContentField): void {
-    const current =
-      field === "imageUrl"
-        ? el.tagName === "IMG"
-          ? (el as HTMLImageElement).getAttribute("src") || ""
-          : ""
-        : el.tagName === "A"
-          ? el.getAttribute("href") || ""
-          : "";
-    const label = field === "imageUrl" ? "Image URL" : "Link URL";
-    const next = window.prompt(label, current);
-    if (next === null) return;
-    const trimmed = next.trim();
-    if (trimmed === current.trim()) return;
-    emitPreviewFieldChange(cardId, field, trimmed);
-    refreshPreviewContent(cardId);
-  }
-
-  function beginTextFieldEdit(el: HTMLElement, cardId: string, field: CardContentField): void {
-    if (el.isContentEditable) return;
-    previewFieldEditing = true;
-    const originalValue = (el.innerText ?? "").replace(/\u00a0/g, " ").trimEnd();
-    const originalTrimmed = originalValue.trim();
-    el.contentEditable = "true";
-    el.classList.add("map-editor__preview-field--editing");
-    el.focus();
-
-    const selection = window.getSelection();
-    if (selection) {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
-
-    const readValue = (): string => (el.innerText ?? "").replace(/\u00a0/g, " ").trimEnd();
-
-    const finish = (commit: boolean): void => {
-      el.removeEventListener("input", onInput);
-      el.removeEventListener("blur", onBlur);
-      el.removeEventListener("keydown", onKeyDown);
-      el.contentEditable = "false";
-      el.classList.remove("map-editor__preview-field--editing");
-      previewFieldEditing = false;
-      if (commit) {
-        const value = readValue().trim();
-        if (value !== originalTrimmed) {
-          emitPreviewFieldChange(cardId, field, value);
-        }
-      }
-      repositionActivePreview();
-    };
-
-    const onInput = (): void => {
-      const value = readValue();
-      if (value.trim() === originalTrimmed) return;
-      emitPreviewFieldChange(cardId, field, value.trim());
-      repositionActivePreview();
-    };
-
-    const onBlur = (): void => finish(true);
-
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        finish(false);
-        const pinId = previewCardId;
-        if (pinId && previewPanel) {
-          const html = resolvePreviewHtml(pinId);
-          if (html) {
-            previewPanel.innerHTML = html;
-            wirePreviewNavigation(pinId);
-            wirePreviewInlineEdit(cardId);
-            repositionActivePreview();
-          }
-        }
-        return;
-      }
-      if (event.key === "Enter" && field !== "body") {
-        event.preventDefault();
-        el.blur();
-      }
-    };
-
-    el.addEventListener("input", onInput);
-    el.addEventListener("blur", onBlur);
-    el.addEventListener("keydown", onKeyDown);
-  }
-
-  function wirePreviewInlineEdit(cardId: string): void {
-    if (!previewInlineEdit || !previewPanel) return;
-    previewPanel.querySelectorAll("[data-field]").forEach((node) => {
-      const el = node as HTMLElement;
-      const fieldName = el.dataset.field;
-      if (!fieldName || !isCardContentField(fieldName)) return;
-
-      el.addEventListener("dblclick", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (fieldName === "imageUrl" || fieldName === "linkUrl") {
-          beginUrlFieldEdit(el, cardId, fieldName);
-          return;
-        }
-        beginTextFieldEdit(el, cardId, fieldName);
-      });
-
-      if (fieldName === "linkUrl" && el.tagName === "A") {
-        el.addEventListener("click", (event) => {
-          event.preventDefault();
-        });
-      }
-    });
   }
 
   function getPreviewPanelRect(): DOMRect | null {
@@ -1034,7 +1014,7 @@ export function createMapEditor(
     pinCenter: Point2D,
     pad: number
   ): { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number } {
-    if (placement === "translated") {
+    if (placement === "translated" && isDualAxisTranslated(panelRect, pinCenter, pad)) {
       const closest = getClosestPanelCorner(panelRect, pinCenter);
       // Square both edges that meet at the closest corner so the diagonal cone is flush.
       switch (closest) {
@@ -1058,33 +1038,24 @@ export function createMapEditor(
     };
   }
 
-  /** Cone from slightly past the pin to the pin-facing popup edge(s). */
-  function getPreviewCone(
+  /** True when the pin sits outside the panel on both axes (needs a diagonal cone). */
+  function isDualAxisTranslated(
     panelRect: DOMRect,
-    pinGeometry: { center: Point2D; radius: number },
-    placement: PreviewPlacement,
+    pinCenter: Point2D,
     pad: number = SAFE_ZONE_PAD_SCREEN_PX
+  ): boolean {
+    const outsideX = pinCenter.x < panelRect.left - pad || pinCenter.x > panelRect.right + pad;
+    const outsideY = pinCenter.y < panelRect.top - pad || pinCenter.y > panelRect.bottom + pad;
+    return outsideX && outsideY;
+  }
+
+  function getEdgeFacingCone(
+    facing: PreviewFacingEdge,
+    panelRect: DOMRect,
+    pinCenter: Point2D,
+    past: number,
+    pad: number
   ): PreviewCone {
-    const { center: pinCenter, radius: pinRadius } = pinGeometry;
-    const past = pinRadius + PREVIEW_CONE_PAST_SCREEN_PX;
-
-    if (placement === "translated") {
-      const { baseA, baseB, closest } = getTranslatedConeBases(panelRect, pinCenter, pad);
-      const closestPt = getPaddedPanelCorners(panelRect, pad)[closest];
-      const dx = pinCenter.x - closestPt.x;
-      const dy = pinCenter.y - closestPt.y;
-      const len = Math.hypot(dx, dy) || 1;
-      return {
-        apex: {
-          x: pinCenter.x + (dx / len) * past,
-          y: pinCenter.y + (dy / len) * past,
-        },
-        baseA,
-        baseB,
-      };
-    }
-
-    const facing = getPinFacingEdge(panelRect, pinCenter, placement);
     switch (facing) {
       case "bottom":
         return {
@@ -1111,6 +1082,53 @@ export function createMapEditor(
           baseB: { x: panelRect.right + pad, y: panelRect.bottom + pad },
         };
     }
+  }
+
+  /** Cone from slightly past the pin to the pin-facing popup edge(s). */
+  function getPreviewCone(
+    panelRect: DOMRect,
+    pinGeometry: { center: Point2D; radius: number },
+    placement: PreviewPlacement,
+    pad: number = SAFE_ZONE_PAD_SCREEN_PX
+  ): PreviewCone {
+    const { center: pinCenter, radius: pinRadius } = pinGeometry;
+    const past = pinRadius + PREVIEW_CONE_PAST_SCREEN_PX;
+
+    if (placement === "translated") {
+      // Only use the diagonal cone when the pin is outside on both axes.
+      // Single-axis clamps should use a normal edge cone against the live panel rect.
+      if (isDualAxisTranslated(panelRect, pinCenter, pad)) {
+        const { baseA, baseB, closest } = getTranslatedConeBases(panelRect, pinCenter, pad);
+        const closestPt = getPaddedPanelCorners(panelRect, pad)[closest];
+        const dx = pinCenter.x - closestPt.x;
+        const dy = pinCenter.y - closestPt.y;
+        const len = Math.hypot(dx, dy) || 1;
+        return {
+          apex: {
+            x: pinCenter.x + (dx / len) * past,
+            y: pinCenter.y + (dy / len) * past,
+          },
+          baseA,
+          baseB,
+        };
+      }
+
+      return getEdgeFacingCone(
+        getPinFacingEdge(panelRect, pinCenter, placement),
+        panelRect,
+        pinCenter,
+        past,
+        pad
+      );
+    }
+
+    return getEdgeFacingCone(
+      getPinFacingEdge(panelRect, pinCenter, placement),
+      panelRect,
+      pinCenter,
+      past,
+      pad
+    );
   }
 
   /** Safe bounds for hover/blur: padded popup plus pin-facing cone. */
@@ -1257,14 +1275,6 @@ export function createMapEditor(
   function positionPreviewHost(mapX: number, mapY: number): void {
     if (!previewHost) return;
 
-    if (stageWidth > 0 && stageHeight > 0) {
-      previewHost.style.left = `${mapX * stageWidth}px`;
-      previewHost.style.top = `${mapY * stageHeight}px`;
-    } else {
-      previewHost.style.left = `${mapX * 100}%`;
-      previewHost.style.top = `${mapY * 100}%`;
-    }
-
     const comp = 1 / scale;
     const gapStage = PREVIEW_GAP_SCREEN_PX / scale;
     const pinClearanceStage = PREVIEW_PIN_CLEARANCE_SCREEN_PX / scale;
@@ -1298,9 +1308,30 @@ export function createMapEditor(
         transform = `translate(${-(width + gapStage + pinClearanceStage)}px, -50%) scale(${comp})`;
         break;
       case "translated":
+        // Host at clamped popup origin in stage space; scale only (no translate).
+        // Keeps getBoundingClientRect aligned with the painted card for safe-zone math.
         transformOrigin = "0 0";
-        transform = `translate(${translated.x}px, ${translated.y}px) scale(${comp})`;
+        transform = `scale(${comp})`;
         break;
+    }
+
+    if (stageWidth > 0 && stageHeight > 0) {
+      const pinStageX = mapX * stageWidth;
+      const pinStageY = mapY * stageHeight;
+      if (placement === "translated") {
+        previewHost.style.left = `${pinStageX + translated.x / scale}px`;
+        previewHost.style.top = `${pinStageY + translated.y / scale}px`;
+      } else {
+        previewHost.style.left = `${pinStageX}px`;
+        previewHost.style.top = `${pinStageY}px`;
+      }
+    } else if (placement === "translated") {
+      previewHost.style.left = `${mapX * 100}%`;
+      previewHost.style.top = `${mapY * 100}%`;
+      transform = `translate(${translated.x}px, ${translated.y}px) scale(${comp})`;
+    } else {
+      previewHost.style.left = `${mapX * 100}%`;
+      previewHost.style.top = `${mapY * 100}%`;
     }
 
     previewHost.style.transformOrigin = transformOrigin;
@@ -1317,11 +1348,6 @@ export function createMapEditor(
   ): void {
     ensurePreviewLayer();
     const samePreview = previewCardId === pinId && previewHost !== null && !previewHost.hidden;
-    if (previewFieldEditing && samePreview && !options.replaceContent) {
-      positionPreviewHost(displayMapX, displayMapY);
-      updatePreviewSafeBlur();
-      return;
-    }
     if (!samePreview || options.replaceContent) {
       previewPanel!.innerHTML = html;
     }
@@ -1333,9 +1359,7 @@ export function createMapEditor(
 
     if (samePreview && !options.replaceContent) return;
 
-    const editCardId = previewDetailCardId ?? cardsAtPin(pinId)[0]?.id ?? pinId;
     wirePreviewNavigation(pinId);
-    wirePreviewInlineEdit(editCardId);
 
     previewPanel!.querySelectorAll("img").forEach((img) => {
       if (img.complete) return;
@@ -1347,7 +1371,11 @@ export function createMapEditor(
 
   function openPinPreview(
     pinId: string | null,
-    options: { detailCardId?: string | null; replaceContent?: boolean } = {}
+    options: {
+      detailCardId?: string | null;
+      replaceContent?: boolean;
+      fromEntryMenu?: boolean;
+    } = {}
   ): void {
     if (!pinId || !previewEnabled) {
       hidePreview();
@@ -1356,6 +1384,7 @@ export function createMapEditor(
 
     if (options.detailCardId !== undefined) {
       previewDetailCardId = options.detailCardId;
+      previewDetailFromEntryMenu = options.fromEntryMenu === true;
     }
 
     const pin = pins.find((entry) => entry.id === pinId);
@@ -1378,6 +1407,23 @@ export function createMapEditor(
 
   function getPinElement(cardId: string): HTMLElement | null {
     return pinsLayer.querySelector(`.map-editor__pin[data-id="${CSS.escape(cardId)}"]`);
+  }
+
+  /** True when any part of the pin intersects the clipped map viewport. */
+  function isPinVisibleInViewport(pinId: string): boolean {
+    const pin = getPinElement(pinId);
+    if (!pin) return false;
+
+    const pinRect = pin.getBoundingClientRect();
+    if (pinRect.width === 0 && pinRect.height === 0) return false;
+
+    const viewportRect = viewport.getBoundingClientRect();
+    return (
+      pinRect.right > viewportRect.left &&
+      pinRect.left < viewportRect.right &&
+      pinRect.bottom > viewportRect.top &&
+      pinRect.top < viewportRect.bottom
+    );
   }
 
   function isPointerOnPinDot(event: PointerEvent, cardId: string): boolean {
@@ -1441,19 +1487,22 @@ export function createMapEditor(
   function findPreviewToOpen(
     event: PointerEvent
   ): { pinId: string; html: string; displayMapX: number; displayMapY: number } | null {
-    if (!previewEnabled) return null;
+    if (!hoverPreviewsActive()) return null;
 
     for (const pinDatum of pins) {
       if (!isPointerOnPinDot(event, pinDatum.id)) continue;
 
       const previousDetail = previewDetailCardId;
+      const previousFromEntryMenu = previewDetailFromEntryMenu;
       // Fresh pin hover shows the entry menu (not a previously selected detail).
       if (previewCardId !== pinDatum.id) {
         previewDetailCardId = null;
+        previewDetailFromEntryMenu = false;
       }
       const html = resolvePreviewHtml(pinDatum.id);
       if (!html) {
         previewDetailCardId = previousDetail;
+        previewDetailFromEntryMenu = previousFromEntryMenu;
         continue;
       }
 
@@ -1465,8 +1514,8 @@ export function createMapEditor(
   }
 
   function updatePreviewFromPointer(event: PointerEvent): void {
-    if (dragging || panning || previewFieldEditing) return;
-    if (!previewEnabled) {
+    if (dragging || panning) return;
+    if (!hoverPreviewsActive()) {
       hidePreview();
       return;
     }
@@ -1511,6 +1560,7 @@ export function createMapEditor(
     previewPanel = null;
     previewCardId = null;
     previewDetailCardId = null;
+    previewDetailFromEntryMenu = false;
     previewSafeBoundsLockedUntilHover = false;
     selectedPin = null;
 
@@ -1592,14 +1642,22 @@ export function createMapEditor(
     let mx = event.clientX - rect.left;
     let my = event.clientY - rect.top;
 
-    // Zoom around the hovered cell when its preview is open.
-    if (previewCardId && previewHost && !previewHost.hidden) {
-      const pin = pins.find((entry) => entry.id === previewCardId);
-      if (pin) {
-        const display = toDisplayCoords(pin.mapX, pin.mapY);
-        mx = translateX + display.mapX * stageWidth * scale;
-        my = translateY + display.mapY * stageHeight * scale;
+    // Zoom around the selected pin (live DOM position), else the open preview pin.
+    let zoomDisplay: { mapX: number; mapY: number } | null = null;
+    if (selectedPin && stageWidth > 0 && stageHeight > 0) {
+      const left = parseFloat(selectedPin.style.left);
+      const top = parseFloat(selectedPin.style.top);
+      if (Number.isFinite(left) && Number.isFinite(top)) {
+        zoomDisplay = { mapX: left / stageWidth, mapY: top / stageHeight };
       }
+    } else if (previewCardId && previewHost && !previewHost.hidden) {
+      const pin = pins.find((entry) => entry.id === previewCardId);
+      if (pin) zoomDisplay = toDisplayCoords(pin.mapX, pin.mapY);
+    }
+
+    if (zoomDisplay) {
+      mx = translateX + zoomDisplay.mapX * stageWidth * scale;
+      my = translateY + zoomDisplay.mapY * stageHeight * scale;
     }
 
     const factor = event.deltaY < 0 ? ZOOM_FACTOR : 1 / ZOOM_FACTOR;
@@ -1645,6 +1703,22 @@ export function createMapEditor(
     const target = (event.target as HTMLElement).closest(".map-editor__pin") as HTMLButtonElement | null;
     if (allowSelectedPinDrag && target?.classList.contains("map-editor__pin--selected")) {
       dragging = true;
+      hidePreview();
+      viewport.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+
+    const pinId = target?.dataset.id;
+    if (
+      pinId &&
+      pinId !== "draft" &&
+      isCompactPointerUi() &&
+      onPinActivate
+    ) {
+      pendingPinActivateId = pinId;
+      pendingPinActivateX = event.clientX;
+      pendingPinActivateY = event.clientY;
       hidePreview();
       viewport.setPointerCapture(event.pointerId);
       event.preventDefault();
@@ -1709,11 +1783,28 @@ export function createMapEditor(
       return;
     }
 
+    if (pendingPinActivateId) {
+      const dx = event.clientX - pendingPinActivateX;
+      const dy = event.clientY - pendingPinActivateY;
+      if (Math.hypot(dx, dy) > PIN_ACTIVATE_MOVE_PX) {
+        panning = true;
+        panStartX = pendingPinActivateX;
+        panStartY = pendingPinActivateY;
+        panOriginX = translateX;
+        panOriginY = translateY;
+        pendingPinActivateId = null;
+        viewport.classList.add("map-editor__viewport--panning");
+        translateX = panOriginX + dx;
+        translateY = panOriginY + dy;
+        applyTransform();
+      }
+      return;
+    }
+
     updatePreviewFromPointer(event);
   };
 
   const onPointerLeave = (event: PointerEvent): void => {
-    if (previewFieldEditing) return;
     const related = event.relatedTarget;
     if (related instanceof Node) {
       if (previewPanel?.contains(related)) return;
@@ -1727,6 +1818,7 @@ export function createMapEditor(
   };
 
   const stopPointerInteraction = (): void => {
+    pendingPinActivateId = null;
     dragging = false;
     overlayDragging = false;
     ripplesOriginDragging = false;
@@ -1735,17 +1827,75 @@ export function createMapEditor(
     viewport.classList.remove("map-editor__viewport--panning");
   };
 
+  const onPointerUp = (): void => {
+    if (pendingPinActivateId && onPinActivate) {
+      const pinId = pendingPinActivateId;
+      pendingPinActivateId = null;
+      stopPointerInteraction();
+      onPinActivate(pinId);
+      return;
+    }
+    stopPointerInteraction();
+  };
+
+  const onCompactPointerUiChange = (): void => {
+    if (isCompactPointerUi()) {
+      hidePreview();
+    }
+  };
+
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (!allowSelectedPinDrag || !selectedPin || stageWidth <= 0 || stageHeight <= 0) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+    const target = event.target as HTMLElement | null;
+    if (
+      target &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable)
+    ) {
+      return;
+    }
+
+    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    let dDisplayX = 0;
+    let dDisplayY = 0;
+    if (key === "ArrowLeft" || key === "a") dDisplayX = -1;
+    else if (key === "ArrowRight" || key === "d") dDisplayX = 1;
+    else if (key === "ArrowUp" || key === "w") dDisplayY = -1;
+    else if (key === "ArrowDown" || key === "s") dDisplayY = 1;
+    else return;
+
+    event.preventDefault();
+    hidePreview();
+
+    const left = parseFloat(selectedPin.style.left);
+    const top = parseFloat(selectedPin.style.top);
+    if (!Number.isFinite(left) || !Number.isFinite(top)) return;
+
+    const step = event.shiftKey ? PIN_NUDGE_STEP_FINE : PIN_NUDGE_STEP;
+    const displayMapX = clamp(left / stageWidth + dDisplayX * step, 0, 1);
+    const displayMapY = clamp(top / stageHeight + dDisplayY * step, 0, 1);
+    positionPin(selectedPin, displayMapX, displayMapY);
+    const stored = fromDisplayCoords(displayMapX, displayMapY);
+    onPinMove(stored.mapX, stored.mapY);
+  };
+
   viewport.addEventListener("wheel", onWheel, { passive: false });
   viewport.addEventListener("pointerdown", onPointerDown);
   viewport.addEventListener("pointermove", onPointerMove);
   viewport.addEventListener("pointerleave", onPointerLeave);
-  viewport.addEventListener("pointerup", stopPointerInteraction);
+  viewport.addEventListener("pointerup", onPointerUp);
   viewport.addEventListener("pointercancel", stopPointerInteraction);
+  compactPointerMq.addEventListener("change", onCompactPointerUiChange);
+  window.addEventListener("keydown", onKeyDown);
 
   renderPins();
   mountRipplesPreview();
   applyTransform();
-  if (image.complete) {
+  if (image?.complete) {
     updateStageMetrics();
   }
 
@@ -1778,9 +1928,17 @@ export function createMapEditor(
         return;
       }
 
+      if (!hoverPreviewsActive()) {
+        return;
+      }
+
       const card = previewCards?.find((entry) => entry.id === cardId);
+      const pinId = card ? locationKey(card.mapX, card.mapY) : cardId;
+      if (!isPinVisibleInViewport(pinId)) {
+        return;
+      }
+
       if (card) {
-        const pinId = locationKey(card.mapX, card.mapY);
         openPinPreview(pinId, { detailCardId: cardId, replaceContent: true });
         return;
       }
@@ -1788,15 +1946,21 @@ export function createMapEditor(
       openPinPreview(cardId, { replaceContent: true });
     },
     destroy(): void {
+      modelBackdropDisposed = true;
+      modelBackdrop?.dispose();
+      modelBackdrop = null;
+      pendingRipplesMount = null;
       ripplesPreviewDisposed = true;
       ripplesPreview?.dispose();
       ripplesPreview = null;
       resizeObserver.disconnect();
+      compactPointerMq.removeEventListener("change", onCompactPointerUiChange);
+      window.removeEventListener("keydown", onKeyDown);
       viewport.removeEventListener("wheel", onWheel);
       viewport.removeEventListener("pointerdown", onPointerDown);
       viewport.removeEventListener("pointermove", onPointerMove);
       viewport.removeEventListener("pointerleave", onPointerLeave);
-      viewport.removeEventListener("pointerup", stopPointerInteraction);
+      viewport.removeEventListener("pointerup", onPointerUp);
       viewport.removeEventListener("pointercancel", stopPointerInteraction);
     },
   };

@@ -5,12 +5,17 @@
   "description": "WebAR world-map experience (MindAR + Three.js) with an admin dashboard, hosted on Netlify.",
   "type": "module",
   "scripts": {
+    "sync-xr": "node scripts/sync-xr-assets.mjs",
+    "postinstall": "node scripts/sync-xr-assets.mjs",
+    "predev": "node scripts/sync-xr-assets.mjs",
+    "prebuild": "node scripts/sync-xr-assets.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@8thwall/engine-binary": "^1.0.0",
     "@netlify/blobs": "^10.7.9",
     "mind-ar": "^1.2.5",
     "three": "0.160.0"

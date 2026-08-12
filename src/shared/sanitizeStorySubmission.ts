@@ -198,6 +198,15 @@ export function sanitizeStorySubmissionInput(input: unknown): SanitizeStoryInput
 
   return {
     ok: true,
-    value: { title, companyName, body, address, contactEmail, imageUrl, linkUrl },
+    value: {
+      submissionType: "legacy",
+      title,
+      companyName,
+      body,
+      address,
+      contactEmail,
+      imageUrl,
+      linkUrl,
+    },
   };
 }

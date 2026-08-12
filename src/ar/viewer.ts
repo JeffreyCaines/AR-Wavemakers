@@ -1,6 +1,10 @@
 import "./styles.css";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
+import type { Object3D } from "three";
 import { MindARThree } from "mind-ar/dist/mindar-image-three.prod.js";
+import scanningAnimUrl from "../images/Scanning_Anim.gif";
+import mapGuideUrl from "../images/Map-guide.png";
+import backButtonUrl from "../images/back_button.png";
 import { fetchActiveCards, fetchRipplesAnchorConfig } from "../shared/api";
 import { loadMapAspectRatio } from "../shared/geo";
 import { isPinRevealed, ST_JOHNS_CARD_ID } from "../shared/ripplesReveal";
@@ -12,8 +16,10 @@ import {
   MAP_REFERENCE_PATH,
   MAP_TARGET_PATH,
 } from "../shared/types";
-import type { InfoCard, RipplesAnchor } from "../shared/types";
+import type { CardType, InfoCard, RipplesAnchor } from "../shared/types";
+import { buildArChromeHtml, wireArChrome, type ArChromeController } from "./chromeUi";
 import { createRipplesEffect, type RipplesEffect } from "./ripplesEffect";
+import { playArSound, preloadArSounds, stopArSound, unlockArSounds } from "./sounds";
 import {
   applyPinVisibility,
   createActiveCardTracker,
@@ -21,6 +27,7 @@ import {
   createOverlaysFromCards,
   ORIENTATION_TRACKING_GRACE_MS,
   pinUnlockTimingOffset,
+  removeOverlaysFromParent,
   RIPPLES_REVEAL_DELAY_MS,
   updatePointing,
   updateTrackingUI,
@@ -29,6 +36,8 @@ import {
 } from "./viewerShared";
 
 const RIPPLE_MASK_SIZE = { width: RIPPLE_MASK_WIDTH, height: RIPPLE_MASK_HEIGHT };
+
+type PlacementPhase = "none" | "scan" | "align";
 
 export function initArViewer(root: HTMLElement): void {
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#000");
@@ -44,8 +53,23 @@ export function initArViewer(root: HTMLElement): void {
           <div id="ar-status" class="ar-status">Loading cards…</div>
           <div id="ar-hint" class="ar-hint">Aim the crosshair at a location on the map to reveal impact stories.</div>
         </div>
-        <button id="ar-start" class="ar-btn" disabled>Start AR</button>
         <div class="ar-crosshair" aria-hidden="true"></div>
+      </div>
+      ${buildArChromeHtml()}
+      <div id="ar-scan" class="ar-scan" aria-hidden="false">
+        <div class="ar-scan__phase ar-scan__phase--scan" data-phase="scan">
+          <div class="ar-scan__header">SCAN THE MAP</div>
+          <div class="ar-scan__body">Step back to align the map with the guide.</div>
+          <img class="ar-scan__gif" src="${scanningAnimUrl}" alt="" decoding="async" />
+          <button type="button" class="ar-scan__okay" data-scan-okay disabled>OKAY</button>
+        </div>
+        <div class="ar-scan__phase ar-scan__phase--align" data-phase="align" hidden>
+          <button type="button" class="ar-scan__back" data-scan-back aria-label="Back">
+            <img src="${backButtonUrl}" alt="" width="50" height="50" decoding="async" />
+          </button>
+          <img class="ar-scan__guide" src="${mapGuideUrl}" alt="" decoding="async" />
+          <div class="ar-scan__footer">Align the map with the guide.</div>
+        </div>
       </div>
       <button
         type="button"
@@ -67,16 +91,25 @@ export function initArViewer(root: HTMLElement): void {
   `;
 
   const container = root.querySelector("#ar-container") as HTMLElement;
-  const startBtn = root.querySelector("#ar-start") as HTMLButtonElement;
   const statusEl = root.querySelector("#ar-status") as HTMLElement;
+  const scanEl = root.querySelector("#ar-scan") as HTMLElement;
+  const scanPhaseEl = root.querySelector('[data-phase="scan"]') as HTMLElement;
+  const alignPhaseEl = root.querySelector('[data-phase="align"]') as HTMLElement;
+  const okayBtn = root.querySelector("[data-scan-okay]") as HTMLButtonElement;
 
   let mindarThree: InstanceType<typeof MindARThree> | null = null;
   let cssRenderer: CSS2DRenderer | null = null;
   let overlays: CardOverlay[] = [];
+  let allCards: InfoCard[] = [];
+  let cardTypeFilter: CardType = "organization";
+  let chromeUi: ArChromeController | null = null;
+  let overlayParent: Object3D | null = null;
   let aspectRatio = DEFAULT_MAP_ASPECT_RATIO;
   let tracking = false;
   let activeCardTracker: ActiveCardTracker | null = null;
   let arSessionActive = false;
+  let placementPhase: PlacementPhase = "scan";
+  let arStartInFlight = false;
   let ripplesEffect: RipplesEffect | null = null;
   let ripplesAnchor: RipplesAnchor = { ...DEFAULT_RIPPLES_ANCHOR };
   let ripplesTimer: ReturnType<typeof setTimeout> | null = null;
@@ -100,17 +133,81 @@ export function initArViewer(root: HTMLElement): void {
     onOpen: () => {
       arApp.classList.add("ar-app--sheet-open");
       document.documentElement.classList.add("ar-sheet-open");
+      syncPlacementOverlay();
+      syncChromeVisibility();
     },
     onDismiss: () => {
       activeCardTracker?.resetSheetTimer();
       arApp.classList.remove("ar-app--sheet-open");
       document.documentElement.classList.remove("ar-sheet-open");
+      syncPlacementOverlay();
+      syncChromeVisibility();
     },
   });
 
   setupLandscapeAndFullscreen(arApp, () => arSessionActive, handleOrientationTransition);
+  arApp.classList.add("ar-app--scanning");
+  applyPlacementPhase();
 
+  chromeUi = wireArChrome(root, {
+    getCards: () => allCards,
+    onCardTypeChange: (type) => {
+      if (cardTypeFilter === type) return;
+      cardTypeFilter = type;
+      rebuildOverlays();
+    },
+    onFiltersChange: () => {
+      rebuildOverlays();
+    },
+    onSelectCard: (card) => {
+      detailSheet.show(card);
+    },
+    onHome: () => {
+      window.location.assign("/");
+    },
+  });
+
+  okayBtn.addEventListener("click", () => {
+    if (arStartInFlight || mindarThree) return;
+    unlockArSounds();
+    if (isLandscapeOrientation()) {
+      void requestAppFullscreen();
+    }
+    void startAr();
+  });
+  root.querySelector("[data-scan-back]")?.addEventListener("click", () => {
+    window.location.assign("/");
+  });
+
+  preloadArSounds();
   void bootstrap();
+
+  function visibleCards(): InfoCard[] {
+    return chromeUi ? chromeUi.filterCards(allCards) : allCards;
+  }
+
+  function rebuildOverlays(): void {
+    if (!overlayParent) return;
+    if (detailSheet.isOpen()) {
+      detailSheet.dismiss();
+      activeCardTracker?.resetSheetTimer();
+    }
+    removeOverlaysFromParent(overlays, overlayParent);
+    overlays = createOverlaysFromCards(visibleCards(), aspectRatio);
+    overlays.forEach(({ markerObject, panelObject }) => {
+      overlayParent!.add(markerObject);
+      overlayParent!.add(panelObject);
+    });
+    syncPinVisibility();
+    clearActivePinVisuals();
+    activeCardTracker?.handleActiveOverlay(null);
+  }
+
+  function syncChromeVisibility(): void {
+    const visible = arSessionActive && tracking && scanEl.hidden && !detailSheet.isOpen();
+    chromeUi?.setVisible(visible);
+    arApp.classList.toggle("ar-app--chrome", visible);
+  }
 
   function cardIsRevealedAt(card: InfoCard, elapsedSec: number | null): boolean {
     if (pinsFullyRevealed) return true;
@@ -141,6 +238,33 @@ export function initArViewer(root: HTMLElement): void {
     return performance.now() < orientationGraceUntil;
   }
 
+  function setPlacementOverlayVisible(visible: boolean): void {
+    if (scanEl.hidden === !visible) {
+      if (visible) applyPlacementPhase();
+      syncChromeVisibility();
+      return;
+    }
+    scanEl.hidden = !visible;
+    scanEl.setAttribute("aria-hidden", visible ? "false" : "true");
+    arApp.classList.toggle("ar-app--scanning", visible);
+    if (visible) applyPlacementPhase();
+    syncChromeVisibility();
+  }
+
+  function applyPlacementPhase(): void {
+    const isScan = placementPhase === "scan";
+    const isAlign = placementPhase === "align";
+    scanPhaseEl.hidden = !isScan;
+    alignPhaseEl.hidden = !isAlign;
+    scanEl.classList.toggle("ar-scan--align", isAlign);
+  }
+
+  function syncPlacementOverlay(): void {
+    const show = placementPhase !== "none" && !tracking && !detailSheet.isOpen();
+    setPlacementOverlayVisible(show);
+    if (show) applyPlacementPhase();
+  }
+
   function flushPendingTargetLost(): void {
     if (!pendingTargetLost) return;
     if (inOrientationGrace()) return;
@@ -148,6 +272,7 @@ export function initArViewer(root: HTMLElement): void {
     tracking = false;
     cancelRipplesReveal();
     updateTrackingUI(statusEl, false);
+    syncPlacementOverlay();
   }
 
   function beginOrientationGrace(): void {
@@ -214,6 +339,7 @@ export function initArViewer(root: HTMLElement): void {
       ripplesTimer = null;
     }
     ripplesShowGeneration += 1;
+    stopArSound("pulse");
     ripplesEffect?.stop();
     if (!pinsFullyRevealed) {
       allowPinTargeting = false;
@@ -225,6 +351,7 @@ export function initArViewer(root: HTMLElement): void {
 
   function startRipplesPlaybackClock(): void {
     if (!tracking || !ripplesEffect) return;
+    playArSound("pulse");
     ripplesEffect.start();
     syncPinVisibility();
     maybeUnlockWhenAllPinsVisible();
@@ -282,25 +409,21 @@ export function initArViewer(root: HTMLElement): void {
       }
 
       await fetchActiveCards();
-      statusEl.textContent = "Ready. Tap Start AR and point at the map.";
-      startBtn.disabled = false;
+      statusEl.textContent = "Ready.";
+      okayBtn.disabled = false;
     } catch {
       statusEl.textContent = "Could not load cards. Check your connection.";
     }
-
-    startBtn.addEventListener("click", () => {
-      if (isLandscapeOrientation()) {
-        void requestAppFullscreen();
-      }
-      void startAr();
-    });
   }
 
   async function startAr(): Promise<void> {
-    if (mindarThree) return;
+    if (mindarThree || arStartInFlight) return;
 
-    startBtn.disabled = true;
+    arStartInFlight = true;
+    okayBtn.disabled = true;
     statusEl.textContent = "Starting camera…";
+    placementPhase = "align";
+    syncPlacementOverlay();
 
     let cards: InfoCard[];
     try {
@@ -308,9 +431,13 @@ export function initArViewer(root: HTMLElement): void {
         fetchActiveCards(),
         fetchRipplesAnchorConfig().catch(() => ({ ...DEFAULT_RIPPLES_ANCHOR })),
       ]);
+      allCards = cards;
     } catch {
       statusEl.textContent = "Could not load cards. Check your connection.";
-      startBtn.disabled = false;
+      arStartInFlight = false;
+      okayBtn.disabled = false;
+      placementPhase = "scan";
+      syncPlacementOverlay();
       return;
     }
 
@@ -339,14 +466,18 @@ export function initArViewer(root: HTMLElement): void {
       anchor.group.add(ripplesEffect.mesh);
     } catch {
       statusEl.textContent = "Could not load ripples masks.";
-      startBtn.disabled = false;
+      arStartInFlight = false;
+      okayBtn.disabled = false;
       mindarThree = null;
+      placementPhase = "scan";
+      syncPlacementOverlay();
       return;
     }
 
     anchor.onTargetFound = () => {
       pendingTargetLost = false;
       tracking = true;
+      syncPlacementOverlay();
       scheduleRipplesReveal();
     };
     anchor.onTargetLost = () => {
@@ -358,6 +489,7 @@ export function initArViewer(root: HTMLElement): void {
       pendingTargetLost = false;
       tracking = false;
       cancelRipplesReveal();
+      syncPlacementOverlay();
     };
 
     cssRenderer = new CSS2DRenderer();
@@ -365,11 +497,12 @@ export function initArViewer(root: HTMLElement): void {
     cssRenderer.domElement.className = "ar-css-renderer";
     container.appendChild(cssRenderer.domElement);
 
-    overlays = createOverlaysFromCards(cards, aspectRatio);
+    overlays = createOverlaysFromCards(visibleCards(), aspectRatio);
     overlays.forEach(({ markerObject, panelObject }) => {
       anchor.group.add(markerObject);
       anchor.group.add(panelObject);
     });
+    overlayParent = anchor.group;
     // Only St. John's until the first full ripples play completes.
     pinsFullyRevealed = false;
     allowPinTargeting = false;
@@ -398,17 +531,25 @@ export function initArViewer(root: HTMLElement): void {
       await mindarThree.start();
       root.querySelector(".ar-header")?.classList.add("ar-header--compact");
       arSessionActive = true;
+      arStartInFlight = false;
+      placementPhase = "align";
       arApp.classList.add("ar-app--running");
       syncLandscapeLayout(arApp, true);
+      syncPlacementOverlay();
     } catch {
       statusEl.textContent = "Camera access denied or not supported.";
-      startBtn.disabled = false;
+      arStartInFlight = false;
+      okayBtn.disabled = false;
+      mindarThree = null;
+      placementPhase = "scan";
+      syncPlacementOverlay();
       window.removeEventListener("popstate", onPopState);
       return;
     }
 
     renderer.setAnimationLoop(() => {
       updateTrackingUI(statusEl, tracking);
+      syncPlacementOverlay();
       ripplesEffect?.update();
       maybeUnlockWhenAllPinsVisible();
       if (allowPinTargeting) {

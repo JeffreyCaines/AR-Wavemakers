@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f3f6fb" />
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <title>Admin User Manual | techNL Wavemakers</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #0f172a;
+        --muted: #475569;
+        --line: #cbd5e1;
+        --bg: #f3f6fb;
+        --card: #ffffff;
+        --accent: #0ea5e9;
+        --accent-dark: #0369a1;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Work Sans", Helvetica, Arial, Lucida, sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+        line-height: 1.55;
+      }
+
+      a {
+        color: var(--accent-dark);
+      }
+
+      .top {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(243, 246, 251, 0.94);
+        border-bottom: 1px solid var(--line);
+        backdrop-filter: blur(8px);
+      }
+
+      .top__inner {
+        width: min(920px, calc(100% - 2rem));
+        margin: 0 auto;
+        padding: 0.85rem 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+      }
+
+      .top__brand {
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+
+      .top__links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1rem;
+        font-size: 0.92rem;
+      }
+
+      .top__links a {
+        text-decoration: none;
+        color: var(--muted);
+      }
+
+      .top__links a:hover {
+        color: var(--accent-dark);
+      }
+
+      main {
+        width: min(920px, calc(100% - 2rem));
+        margin: 0 auto;
+        padding: 1.75rem 0 3.5rem;
+      }
+
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(1.7rem, 3vw, 2.2rem);
+        line-height: 1.2;
+      }
+
+      .lede {
+        margin: 0 0 1.5rem;
+        color: var(--muted);
+        max-width: 42rem;
+      }
+
+      .toc {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        margin-bottom: 2rem;
+      }
+
+      .toc h2 {
+        margin: 0 0 0.6rem;
+        font-size: 1rem;
+      }
+
+      .toc ol {
+        margin: 0;
+        padding-left: 1.25rem;
+      }
+
+      .toc li {
+        margin: 0.25rem 0;
+      }
+
+      section {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1.25rem 1.35rem 1.4rem;
+        margin-bottom: 1rem;
+      }
+
+      section h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1.25rem;
+      }
+
+      section h3 {
+        margin: 1.15rem 0 0.45rem;
+        font-size: 1.05rem;
+      }
+
+      p,
+      ul,
+      ol {
+        margin: 0 0 0.75rem;
+      }
+
+      ul,
+      ol {
+        padding-left: 1.25rem;
+      }
+
+      li {
+        margin: 0.3rem 0;
+      }
+
+      .note {
+        margin: 0.85rem 0 0;
+        padding: 0.75rem 0.9rem;
+        border-left: 3px solid var(--accent);
+        background: #f0f9ff;
+        border-radius: 0 8px 8px 0;
+        color: var(--muted);
+      }
+
+      .note strong {
+        color: var(--ink);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+        margin: 0.5rem 0 0.85rem;
+      }
+
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.55rem 0.65rem;
+        border: 1px solid var(--line);
+      }
+
+      th {
+        background: #f8fafc;
+        font-weight: 600;
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.9em;
+        background: #f1f5f9;
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+      }
+
+      footer {
+        width: min(920px, calc(100% - 2rem));
+        margin: 0 auto 2rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="top__inner">
+        <div class="top__brand">Wavemakers Admin Manual</div>
+        <nav class="top__links" aria-label="Quick links">
+          <a href="/admin">Open Admin</a>
+          <a href="/ar-preview">AR Preview</a>
+          <a href="/share-story.html">Share Story Form</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <h1>Admin User Manual</h1>
+      <p class="lede">
+        This guide explains how to run the Wavemakers wall-map experience from the admin
+        dashboard. No prior knowledge of the project is required.
+      </p>
+
+      <nav class="toc" aria-label="Table of contents">
+        <h2>Contents</h2>
+        <ol>
+          <li><a href="#what">What this system is</a></li>
+          <li><a href="#signin">How to sign in</a></li>
+          <li><a href="#overview">Admin overview</a></li>
+          <li><a href="#setup">First-time setup</a></li>
+          <li><a href="#cards">Edit Cards</a></li>
+          <li><a href="#submissions">Review Submissions</a></li>
+          <li><a href="#share">Public story form</a></li>
+          <li><a href="#verify">Verify in AR</a></li>
+          <li><a href="#reference">Quick reference</a></li>
+        </ol>
+      </nav>
+
+      <section id="what">
+        <h2>1. What this system is</h2>
+        <p>
+          Wavemakers is a WebAR experience for techNL. Visitors point a phone at a physical
+          wall world map. Water ripples reveal pins. Each pin opens an impact story card.
+        </p>
+        <p>There is also a browser simulator so you can try the same experience without a camera.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Page</th>
+              <th>Who uses it</th>
+              <th>Purpose</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>/</code></td>
+              <td>Public</td>
+              <td>Landing: choose live map or simulator</td>
+            </tr>
+            <tr>
+              <td><code>/ar</code></td>
+              <td>Public</td>
+              <td>Live AR with phone camera and physical map</td>
+            </tr>
+            <tr>
+              <td><code>/ar-preview</code></td>
+              <td>Public / admins</td>
+              <td>Same UX without camera or wall map</td>
+            </tr>
+            <tr>
+              <td><code>/admin</code></td>
+              <td>Admins only</td>
+              <td>Cards, map calibration, ripples, story review</td>
+            </tr>
+            <tr>
+              <td><code>/share-story.html</code></td>
+              <td>Public</td>
+              <td>Submit an impact story for approval</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="signin">
+        <h2>2. How to sign in</h2>
+        <ol>
+          <li>Open <code>/admin</code> in your browser.</li>
+          <li>Enter the admin password.</li>
+          <li>Select <strong>Sign in</strong>.</li>
+        </ol>
+        <p>
+          After a successful sign-in, the password is kept for the current browser session.
+          It clears when you choose <strong>Sign Out</strong> or when the browser session ends.
+        </p>
+        <p>
+          To sign out: open the header menu (three lines on smaller screens) and choose
+          <strong>Sign Out</strong>.
+        </p>
+      </section>
+
+      <section id="overview">
+        <h2>3. Admin overview</h2>
+        <p>After login you see a header with three main panels. Opening one switches the workspace.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Panel</th>
+              <th>Use it for</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Edit Cards</strong></td>
+              <td>Create, edit, place, activate, or delete impact cards</td>
+            </tr>
+            <tr>
+              <td><strong>Calibrate Map</strong></td>
+              <td>Align cities on the artistic map, and set the ripples origin</td>
+            </tr>
+            <tr>
+              <td><strong>Review Submissions</strong></td>
+              <td>Approve or reject stories from the public form</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>The header menu also includes:</p>
+        <ul>
+          <li><strong>Share Story Form</strong>: opens the public submission page</li>
+          <li><strong>Open AR Viewer</strong>: opens the camera-free preview</li>
+          <li><strong>User Manual</strong>: this page</li>
+          <li><strong>Sign Out</strong></li>
+        </ul>
+        <p>
+          The <strong>Review Submissions</strong> button shows a badge with the number of
+          pending stories.
+        </p>
+      </section>
+
+      <section id="setup">
+        <h2>4. First-time setup</h2>
+        <p>
+          Do this once when the wall map image is new or changed. Good calibration makes
+          geocoded card pins land in the right places.
+        </p>
+
+        <h3>4.1 Calibration points</h3>
+        <ol>
+          <li>Open <strong>Calibrate Map</strong>.</li>
+          <li>Stay on the <strong>Calibration points</strong> tab.</li>
+          <li>Type a city as <code>City, Country</code> (for example <code>St. John's, Canada</code>).</li>
+          <li>Select <strong>Add point</strong>. A teal pin appears on the map.</li>
+          <li>Drag that pin to the true spot on the artistic map.</li>
+          <li>Repeat for at least two well-separated cities. Three or more improves accuracy.</li>
+          <li>Select <strong>Save</strong>.</li>
+        </ol>
+        <p>
+          The status line shows the projection mode in use (for example linear, affine, or TPS).
+          More well-placed points allow a stronger fit.
+        </p>
+        <p class="note">
+          <strong>Tip:</strong> With fewer than two saved points, address geocoding still works
+          but placement on the map is only approximate.
+        </p>
+
+        <h3>4.2 Ripples anchor</h3>
+        <p>
+          Ripples are the water effect that reveals pins in AR. You set where that effect
+          starts on the map.
+        </p>
+        <ol>
+          <li>Still in <strong>Calibrate Map</strong>, open the <strong>Ripples anchor</strong> tab.</li>
+          <li>Choose <strong>Loop</strong> or <strong>Fade</strong> to edit that variant’s origin.</li>
+          <li>
+            Use the <strong>Active in AR viewer</strong> radios to pick which variant the
+            public AR experience uses.
+          </li>
+          <li>Drag on the ripples preview to move the origin.</li>
+          <li>Select <strong>Save</strong>.</li>
+        </ol>
+      </section>
+
+      <section id="cards">
+        <h2>5. Edit Cards</h2>
+        <p>
+          Open <strong>Edit Cards</strong>. You get a cropped wall map on one side and a
+          cards list or edit form on the other.
+        </p>
+
+        <h3>5.1 Map controls</h3>
+        <ul>
+          <li><strong>Scroll wheel</strong>: zoom in or out (about 1× to 6×).</li>
+          <li><strong>Drag empty map</strong>: pan when zoomed in.</li>
+          <li><strong>Drag selected pin</strong>: only while that card’s edit form is open.</li>
+          <li>
+            <strong>Desktop hover</strong>: hover a pin or list item to preview the card on the map.
+          </li>
+          <li>
+            <strong>Phone / narrow screen</strong>: tap a pin to open that card in the sidebar.
+          </li>
+        </ul>
+
+        <h3>5.2 Create a card</h3>
+        <ol>
+          <li>Select <strong>New card</strong>.</li>
+          <li>
+            On the <strong>Details</strong> tab, fill in:
+            <ul>
+              <li><strong>Title</strong> (required)</li>
+              <li><strong>Company</strong> (optional)</li>
+              <li><strong>Impact story</strong> (required)</li>
+              <li><strong>Address</strong> (city / country text)</li>
+              <li><strong>Active</strong>: leave checked if the card should appear in public AR</li>
+            </ul>
+          </li>
+          <li>
+            Optional: open the <strong>Media</strong> tab and add an image URL and/or link URL.
+          </li>
+          <li>
+            Place the pin:
+            <ul>
+              <li>Enter an address and select <strong>Geocode address</strong>, or</li>
+              <li>Drag the draft pin on the map.</li>
+            </ul>
+          </li>
+          <li>Select <strong>Save</strong>.</li>
+        </ol>
+        <p>
+          Geocode may snap to an existing nearby pin (same place name, or within about 500 m).
+          A toast message confirms when that happens.
+        </p>
+
+        <h3>5.3 Edit or move a card</h3>
+        <ol>
+          <li>Select a card from the list, or tap its pin on a small screen.</li>
+          <li>Change fields in the form, and/or drag the selected pin.</li>
+          <li>Select <strong>Save</strong>.</li>
+        </ol>
+
+        <h3>5.4 Active vs inactive</h3>
+        <p>
+          Uncheck <strong>Active</strong> to hide a card from the public AR experience.
+          Inactive cards remain in the admin list so you can finish placement or hold a draft.
+        </p>
+
+        <h3>5.5 Several stories at one place</h3>
+        <ol>
+          <li>Open an existing card.</li>
+          <li>Select <strong>Add entry to this pin</strong>.</li>
+          <li>Fill in the new title and story, then <strong>Save</strong>.</li>
+        </ol>
+        <p>
+          The pin shows that multiple entries exist. In the AR preview, visitors pick which
+          entry to read. Dragging and saving moves all sibling cards together.
+        </p>
+
+        <h3>5.6 Delete a card</h3>
+        <ol>
+          <li>Open the card.</li>
+          <li>Select <strong>Delete</strong> and confirm.</li>
+        </ol>
+      </section>
+
+      <section id="submissions">
+        <h2>6. Review Submissions</h2>
+        <p>
+          Public visitors send stories through the share form. Those land here as pending
+          items. The header badge shows how many are waiting.
+        </p>
+        <ol>
+          <li>Open <strong>Review Submissions</strong>.</li>
+          <li>Select a pending item to read title, company, address, email, story, and links.</li>
+          <li>
+            Choose:
+            <ul>
+              <li>
+                <strong>Approve</strong>: creates an inactive impact card, removes the
+                submission, switches you to Edit Cards, and tries to geocode the address.
+              </li>
+              <li>
+                <strong>Reject</strong>: permanently deletes the submission after confirm.
+              </li>
+            </ul>
+          </li>
+        </ol>
+        <p class="note">
+          <strong>Important:</strong> Approved cards start inactive and may sit near the map
+          center until geocode or manual placement finishes. Open the card, fix the pin,
+          check <strong>Active</strong>, then <strong>Save</strong> before it appears in AR.
+        </p>
+      </section>
+
+      <section id="share">
+        <h2>7. Public story form</h2>
+        <p>
+          Share <code>/share-story.html</code> with people who should submit impact stories.
+          You can also open it from the admin menu as <strong>Share Story Form</strong>.
+        </p>
+        <p>
+          Submissions do not appear in AR until an admin approves them and activates the
+          resulting card (see section 6).
+        </p>
+      </section>
+
+      <section id="verify">
+        <h2>8. Verify in AR</h2>
+        <ol>
+          <li>
+            From the admin menu, open <strong>Open AR Viewer</strong> (or go to
+            <code>/ar-preview</code>).
+          </li>
+          <li>Confirm ripples, pin positions, and card content look right.</li>
+          <li>
+            For the live wall: open <code>/ar</code> on a phone over HTTPS, point at the
+            physical map, and aim the crosshair at pins.
+          </li>
+        </ol>
+        <p>
+          Only <strong>Active</strong> cards appear for visitors. If a card is missing in AR,
+          check that checkbox first.
+        </p>
+      </section>
+
+      <section id="reference">
+        <h2>9. Quick reference</h2>
+
+        <h3>Key ideas</h3>
+        <ul>
+          <li>
+            <strong>Active</strong>: card is visible in public AR. Unchecked means admin-only draft.
+          </li>
+          <li>
+            <strong>Calibration</strong>: teaches the app how lat/lng maps onto your artistic
+            wall image. Needed for accurate geocode placement.
+          </li>
+          <li>
+            <strong>Pins</strong>: positions on the map image. Saving a card stores that placement.
+          </li>
+          <li>
+            <strong>Ripples anchor</strong>: where the reveal effect starts; separate from card pins.
+          </li>
+        </ul>
+
+        <h3>Common mistakes</h3>
+        <ul>
+          <li>Edited a pin or field but forgot <strong>Save</strong>.</li>
+          <li>Approved a submission and left the new card <strong>inactive</strong>.</li>
+          <li>Geocoded with fewer than two calibration points, so placement looks wrong.</li>
+          <li>Moved a calibration or ripples pin but did not <strong>Save</strong> that panel.</li>
+          <li>Expected a draft card to show in <code>/ar</code> while Active was off.</li>
+        </ul>
+
+        <h3>Suggested daily workflow</h3>
+        <ol>
+          <li>Review Submissions: approve or reject.</li>
+          <li>Edit Cards: place, activate, and polish new stories.</li>
+          <li>Open AR Viewer: spot-check before visitors see the wall.</li>
+        </ol>
+      </section>
+    </main>
+
+    <footer>
+      <p>techNL Wavemakers · Admin documentation</p>
+    </footer>
+  </body>
+</html>

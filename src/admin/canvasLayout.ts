@@ -14,7 +14,7 @@ export function getCanvasCardsMinWidth(cardsPanel: HTMLElement | null): number {
   return Number.isFinite(minWidth) && minWidth > 0 ? minWidth : 320;
 }
 
-/** Match main-panel sizing to the map canvas row (map + 320px cards). */
+/** Match main-panel sizing to the map canvas row (map + cards). */
 export function fitCanvasMainPanel(
   canvas: HTMLElement,
   mainPanel: HTMLElement,
@@ -41,9 +41,10 @@ export function fitCanvasMainPanel(
   let fitHeight: number;
 
   if (stacked) {
-    const cardsHeight = cardsPanel.getBoundingClientRect().height || 360;
+    // Reserve space for the menu; map fits above and cards flex-fill the rest.
+    const minCardsHeight = Math.min(360, Math.max(220, innerHeight * 0.4));
     fitWidth = innerWidth;
-    fitHeight = Math.max(1, innerHeight - cardsHeight - gap);
+    fitHeight = Math.max(1, innerHeight - minCardsHeight - gap);
   } else {
     const cardsMinWidth = getCanvasCardsMinWidth(cardsPanel);
     fitWidth = Math.max(1, innerWidth - cardsMinWidth - gap);
@@ -56,8 +57,14 @@ export function fitCanvasMainPanel(
 
   mainPanel.style.width = `${stageWidth}px`;
   mainPanel.style.height = `${stageHeight}px`;
-  row.style.height = `${stageHeight}px`;
-  cardsPanel.style.height = `${stageHeight}px`;
+
+  if (stacked) {
+    row.style.height = "";
+    cardsPanel.style.height = "";
+  } else {
+    row.style.height = `${stageHeight}px`;
+    cardsPanel.style.height = `${stageHeight}px`;
+  }
 }
 
 export function resetCanvasMainPanel(canvas: HTMLElement, mainPanel: HTMLElement): void {

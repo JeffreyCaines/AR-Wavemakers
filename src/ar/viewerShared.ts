@@ -3,12 +3,15 @@ import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import {
   buildCardContentHtml,
   buildCardDetailWithBackHtml,
+  buildCardPreviewHtml,
+  buildCardPreviewWithBackHtml,
   buildLocationEntryMenuHtml,
 } from "../shared/cardContent";
 import { mapXYToAnchorPosition } from "../shared/geo";
 import type { LocationGroup } from "../shared/locationGroups";
 import { groupCardsByLocation } from "../shared/locationGroups";
-import type { InfoCard, RipplesAnchorPlacement } from "../shared/types";
+import type { CardType, InfoCard, RipplesAnchorPlacement } from "../shared/types";
+import { playArSound } from "./sounds";
 
 export const POINT_THRESHOLD = 0.12;
 export const SHEET_OPEN_DELAY_MS = 2000;
@@ -22,6 +25,43 @@ export const pinUnlockTimingOffset = 500;
 export const ORIENTATION_TRACKING_GRACE_MS = 2000;
 const SHEET_SWIPE_DISMISS_PX = 72;
 const SHEET_DRAG_START_PX = 8;
+
+export const AR_CARD_TYPE_TOGGLE_HTML = `
+  <div class="ar-type-toggle" role="tablist" aria-label="Card type">
+    <button type="button" class="ar-type-toggle__btn" role="tab" aria-selected="false" data-ar-card-type="individual">
+      Individuals
+    </button>
+    <button type="button" class="ar-type-toggle__btn ar-type-toggle__btn--active" role="tab" aria-selected="true" data-ar-card-type="organization">
+      Organizations
+    </button>
+  </div>
+`;
+
+export function wireArCardTypeToggle(
+  root: ParentNode,
+  onChange: (type: CardType) => void
+): void {
+  const buttons = root.querySelectorAll<HTMLButtonElement>("[data-ar-card-type]");
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const type = button.dataset.arCardType;
+      if (type !== "individual" && type !== "organization") return;
+      buttons.forEach((entry) => {
+        const selected = entry.dataset.arCardType === type;
+        entry.classList.toggle("ar-type-toggle__btn--active", selected);
+        entry.setAttribute("aria-selected", String(selected));
+      });
+      onChange(type);
+    });
+  });
+}
+
+export function removeOverlaysFromParent(overlays: CardOverlay[], parent: THREE.Object3D): void {
+  for (const overlay of overlays) {
+    parent.remove(overlay.markerObject);
+    parent.remove(overlay.panelObject);
+  }
+}
 
 const measureCornerA = new THREE.Vector3();
 const measureCornerB = new THREE.Vector3();
@@ -231,13 +271,13 @@ export interface CardDetailSheet {
 function renderOverlayPanel(overlay: CardOverlay): void {
   const { group, panel, selectedCardId } = overlay;
   if (group.cards.length === 1) {
-    panel.innerHTML = buildCardContentHtml(group.cards[0]);
+    panel.innerHTML = buildCardPreviewHtml(group.cards[0]);
     return;
   }
   if (selectedCardId) {
     const detail = group.cards.find((entry) => entry.id === selectedCardId);
     if (detail) {
-      panel.innerHTML = buildCardDetailWithBackHtml(detail);
+      panel.innerHTML = buildCardPreviewWithBackHtml(detail);
       return;
     }
   }
@@ -582,6 +622,7 @@ export function createCardDetailSheet(
     cardId = null;
     groupKey = null;
     activeGroup = null;
+    playArSound("back");
     hideSheet();
     if (!fromHistory && historyPushed) {
       historyPushed = false;
@@ -602,6 +643,7 @@ export function createCardDetailSheet(
         event.preventDefault();
         const card = group.cards.find((entry) => entry.id === id);
         if (!card) return;
+        playArSound("pin");
         cardId = card.id;
         content.innerHTML = buildCardDetailWithBackHtml(card);
         content.querySelector('[data-action="back-to-entries"]')?.addEventListener("click", (backEvent) => {
@@ -704,6 +746,7 @@ export function createCardDetailSheet(
       open = true;
       content.innerHTML = buildCardContentHtml(card);
       ensureHistory();
+      playArSound("pin");
       callbacks.onOpen();
       showSheet();
     },
@@ -723,6 +766,7 @@ export function createCardDetailSheet(
       }
       if (!sameGroup) {
         ensureHistory();
+        playArSound("pin");
         callbacks.onOpen();
         showSheet();
       }

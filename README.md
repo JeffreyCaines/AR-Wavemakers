@@ -4,10 +4,12 @@ WebAR experience that tracks a physical wall world map with [MindAR](https://hiu
 image tracking and overlays geo-addressed impact cards. Works on mobile browsers
 over HTTPS — no app install, no WebXR.
 
-- `/` - landing: choose the real map or the browser simulator
+- `/` - Wavemakers landing (share story / start experience)
 - `/ar` - live AR viewer. Point the phone at the map; ripples reveal pins; aim the crosshair for a story
 - `/ar-preview` - same UX without a camera or physical map
+- `/8th-ar` - experimental world-tracking (SLAM) viewer via [@8thwall/engine-binary](https://github.com/8thwall/engine). Tap to place the map plane; two-finger tap recenters. Best on a phone over HTTPS.
 - `/admin` - password-gated dashboard for cards, map calibration, ripples placement, and story review
+- `/admin-manual.html` - [admin user manual](public/admin-manual.html) (also linked from the admin menu)
 - `/share-story.html` - public form to submit an impact story for admin approval
 
 ## Stack
@@ -15,7 +17,7 @@ over HTTPS — no app install, no WebXR.
 | Layer | Choice |
 |-------|--------|
 | Frontend | Vite + TypeScript (vanilla) |
-| AR | MindAR 1.2.5 + Three.js (CSS2D overlays + procedural ripples) |
+| AR | MindAR 1.2.5 + Three.js (CSS2D overlays + procedural ripples); `/8th-ar` uses 8th Wall engine binary SLAM |
 | Hosting | Netlify (auto HTTPS for camera) |
 | API | Netlify Functions (single function at `/api/*`) |
 | Data | Netlify Blobs; local `data/*.json` fallback in Netlify Dev |
@@ -58,6 +60,7 @@ npx netlify-cli dev
 npm run dev                 # http://localhost:5173
 ```
 
+`predev` / `postinstall` copy `@8thwall/engine-binary` into `public/external/xr` (gitignored). Needed so Netlify Dev and ngrok serve `/external/xr/xr.js` as JS, not SPA HTML. Re-run with `npm run sync-xr` if that folder is missing.
 Compile the tracking target once a reference image exists:
 
 ```bash

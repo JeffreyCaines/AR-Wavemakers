@@ -15,15 +15,48 @@ import {
   updateCard,
 } from "../shared/api";
 import { buildProjection, mapXYAdminToOriginal, mapXYOriginalToAdmin, projectLatLng, type Projection } from "../shared/geo";
-import { findGroupForCardId, groupCardsByLocation, locationKey } from "../shared/locationGroups";
-import type { CalibrationPoint, GeocodeResult, InfoCard, RipplesAnchor, StorySubmission } from "../shared/types";
+import {
+  findGroupForCardId,
+  findMatchingPin,
+  groupCardsByLocation,
+  locationKey,
+} from "../shared/locationGroups";
+import type {
+  CalibrationPoint,
+  CardType,
+  GeocodeResult,
+  InfoCard,
+  RipplesAnchor,
+  StorySubmission,
+} from "../shared/types";
 import { MAP_ADMIN_CROP, MAP_ADMIN_REFERENCE_PATH } from "../shared/types";
+import {
+  isIndividualSubmission,
+  isOrganizationSubmission,
+  submissionTypeLabel,
+} from "../shared/sanitizeGetNoticed";
 import { fitCanvasMainPanel, resetCanvasMainPanel } from "./canvasLayout";
+import {
+  cardFormFieldsHtml,
+  emptyCardForm,
+  fillCardForm,
+  hydrateCardFormState,
+  readCardForm,
+  syncCardFormTypeFields,
+  type CardFormState,
+} from "./cardForm";
 import { createCalibrationPanel } from "./calibrationPanel";
 import { renderAdminLogin } from "./login";
-import { createMapEditor } from "./mapEditor";
+import { createMapEditor, type MapEditorBackdrop } from "./mapEditor";
 
-type FormState = Omit<InfoCard, "id">;
+type FormState = CardFormState;
+
+export interface AdminDashboardOptions {
+  /** `model3d` swaps the reference JPEG for a top-down AR map mesh. */
+  backdrop?: MapEditorBackdrop;
+  title?: string;
+  subtitle?: string;
+}
 
 function renderAdminSiteFooter(): string {
   return `
@@ -35,34 +68,37 @@ function renderAdminSiteFooter(): string {
   `;
 }
 
-const emptyForm = (): FormState => ({
-  title: "",
-  body: "",
-  companyName: "",
-  address: "",
-  lat: 0,
-  lng: 0,
-  mapX: 0.5,
-  mapY: 0.5,
-  imageUrl: "",
-  linkUrl: "",
-  active: true,
-});
+const resolveCardType = (card: Pick<InfoCard, "cardType">): CardType =>
+  card.cardType === "individual" ? "individual" : "organization";
 
-export function initAdminDashboard(root: HTMLElement): void {
+const resolveSubmissionCardType = (submission: Pick<StorySubmission, "submissionType">): CardType =>
+  submission.submissionType === "individual" ? "individual" : "organization";
+
+const emptyForm = (cardType: CardType = "organization"): FormState => emptyCardForm(cardType);
+
+export function initAdminDashboard(root: HTMLElement, options: AdminDashboardOptions = {}): void {
+  const backdrop = options.backdrop ?? "image";
+  const title = options.title ?? "Admin Dashboard";
+  const subtitle = options.subtitle ?? "Enter the admin password to manage info cards.";
+
   if (!getAdminToken()) {
     renderAdminLogin(root, {
-      title: "Admin Dashboard",
-      subtitle: "Enter the admin password to manage info cards.",
-      onSuccess: () => renderDashboard(root),
+      title,
+      subtitle,
+      onSuccess: () => renderDashboard(root, { backdrop, title }),
     });
     return;
   }
 
-  renderDashboard(root);
+  renderDashboard(root, { backdrop, title });
 }
 
-function renderDashboard(root: HTMLElement): void {
+function renderDashboard(
+  root: HTMLElement,
+  options: { backdrop: MapEditorBackdrop; title: string }
+): void {
+  const { backdrop, title } = options;
+  document.title = `${title} · techNL Wavemakers`;
   root.innerHTML = `
     <div class="admin">
       <header class="admin-header">
@@ -79,10 +115,28 @@ function renderDashboard(root: HTMLElement): void {
             Review Submissions <span id="submission-toggle-badge" class="admin-badge" hidden>0</span>
           </button>
         </nav>
-        <div class="admin-header__actions">
-          <a href="/share-story.html" class="admin-link">Share Story Form</a>
-          <a href="/ar-preview" class="admin-link">Open AR Viewer</a>
-          <button type="button" id="logout-btn" class="admin-btn--pill">Sign Out</button>
+        <div class="admin-header__menu">
+          <button
+            type="button"
+            id="admin-header-menu-btn"
+            class="admin-header__menu-toggle"
+            aria-expanded="false"
+            aria-controls="admin-header-actions"
+            aria-label="Open menu"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="admin-header__menu-icon admin-header__menu-icon--list" viewBox="0 0 16 16" aria-hidden="true">
+              <path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5m0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5m0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5"/>
+            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="admin-header__menu-icon admin-header__menu-icon--close" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+            </svg>
+          </button>
+          <div id="admin-header-actions" class="admin-header__actions">
+            <a href="/share-story.html" class="admin-link">Share Story Form</a>
+            <a href="/ar-preview" class="admin-link">Open AR Viewer</a>
+            <a href="/admin-manual.html" class="admin-link" target="_blank" rel="noopener noreferrer">User Manual</a>
+            <button type="button" id="logout-btn" class="admin-btn--pill">Sign Out</button>
+          </div>
         </div>
       </header>
       <div id="admin-toast" class="admin-toast" role="status" aria-live="polite" hidden></div>
@@ -96,6 +150,14 @@ function renderDashboard(root: HTMLElement): void {
                   <div id="cards-shelf-view" class="admin-canvas__cards-view">
                     <div class="admin-canvas__cards-toolbar">
                       <h2>Cards</h2>
+                    </div>
+                    <div class="admin-form__tabs cards-type-tabs" role="tablist" aria-label="Card type">
+                      <button type="button" class="admin-form__tab admin-form__tab--active" role="tab" aria-selected="true" data-cards-tab="individual">
+                        Individuals
+                      </button>
+                      <button type="button" class="admin-form__tab" role="tab" aria-selected="false" data-cards-tab="organization">
+                        Organizations
+                      </button>
                     </div>
                     <div class="admin-scroll admin-canvas__cards-body admin-list-scroll">
                       <ul id="card-list" class="admin-card-list"></ul>
@@ -111,27 +173,8 @@ function renderDashboard(root: HTMLElement): void {
                       <h2 id="form-title">Edit card</h2>
                       <button type="button" id="edit-shelf-back" class="admin-canvas__cards-back" aria-label="Back to cards">×</button>
                     </div>
-                    <form id="card-form" class="admin-form admin-form--edit">
-                      <div class="admin-form__scroll admin-scroll">
-                        <div class="admin-form__tabs" role="tablist" aria-label="Card fields">
-                          <button type="button" class="admin-form__tab admin-form__tab--active" role="tab" aria-selected="true" data-form-tab="details">Details</button>
-                          <button type="button" class="admin-form__tab" role="tab" aria-selected="false" data-form-tab="media">Media</button>
-                        </div>
-                        <div class="admin-form__tabpanel admin-form__tabpanel--active" data-form-tabpanel="details" role="tabpanel">
-                          <label>Title<input name="title" required /></label>
-                          <label>Company<input name="companyName" /></label>
-                          <label>Impact story<textarea name="body" rows="17" required></textarea></label>
-                          <label class="admin-checkbox"><input name="active" type="checkbox" checked /> Active</label>
-                          <label>Address<input name="address" placeholder="City, Country" /></label>
-                          <button type="button" id="geocode-btn" class="admin-btn--pill admin-form__geocode-btn">Geocode address</button>
-                          <span id="geocode-result" class="admin-muted admin-form__geocode-result"></span>
-                          <small class="admin-attribution">Geocoding &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</small>
-                        </div>
-                        <div class="admin-form__tabpanel" data-form-tabpanel="media" role="tabpanel" hidden>
-                          <label>Image URL<input name="imageUrl" type="url" placeholder="https://…" /></label>
-                          <label>Link URL<input name="linkUrl" type="url" placeholder="https://…" /></label>
-                        </div>
-                      </div>
+                    <form id="card-form" class="admin-form admin-form--edit" novalidate>
+                      ${cardFormFieldsHtml()}
                       <div class="submission-sidebar__footer">
                         <div class="submission-sidebar__actions">
                           <button type="submit" class="admin-btn--pill">Save</button>
@@ -198,6 +241,14 @@ function renderDashboard(root: HTMLElement): void {
                     <div class="admin-canvas__cards-toolbar">
                       <h2>Pending submissions <span id="submission-count" class="admin-badge" hidden>0</span></h2>
                     </div>
+                    <div class="admin-form__tabs cards-type-tabs" role="tablist" aria-label="Submission type">
+                      <button type="button" class="admin-form__tab admin-form__tab--active" role="tab" aria-selected="true" data-submissions-tab="individual">
+                        Individuals
+                      </button>
+                      <button type="button" class="admin-form__tab" role="tab" aria-selected="false" data-submissions-tab="organization">
+                        Organizations
+                      </button>
+                    </div>
                     <div class="admin-scroll admin-canvas__cards-body admin-list-scroll">
                       <ul id="submission-list" class="admin-card-list"></ul>
                     </div>
@@ -222,16 +273,47 @@ function renderDashboard(root: HTMLElement): void {
   root.querySelector("#logout-btn")?.addEventListener("click", () => {
     clearAdminToken();
     renderAdminLogin(root, {
-      title: "Admin Dashboard",
+      title,
       subtitle: "Enter the admin password to manage info cards.",
-      onSuccess: () => renderDashboard(root),
+      onSuccess: () => renderDashboard(root, { backdrop, title }),
     });
+  });
+
+  const headerMenu = root.querySelector(".admin-header__menu") as HTMLElement | null;
+  const headerMenuBtn = root.querySelector("#admin-header-menu-btn") as HTMLButtonElement | null;
+
+  const setHeaderMenuOpen = (open: boolean): void => {
+    if (!headerMenu || !headerMenuBtn) return;
+    headerMenu.classList.toggle("is-open", open);
+    headerMenuBtn.setAttribute("aria-expanded", String(open));
+    headerMenuBtn.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+  };
+
+  headerMenuBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setHeaderMenuOpen(!headerMenu?.classList.contains("is-open"));
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!headerMenu?.isConnected || !headerMenu.classList.contains("is-open")) return;
+    if (headerMenu.contains(event.target as Node)) return;
+    setHeaderMenuOpen(false);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!headerMenu?.isConnected || !headerMenu.classList.contains("is-open")) return;
+    setHeaderMenuOpen(false);
+  });
+
+  window.matchMedia("(max-width: 720px)").addEventListener("change", (event) => {
+    if (!event.matches) setHeaderMenuOpen(false);
   });
 
   lockNativeScroll(root.querySelector(".admin") as HTMLElement);
   const cardForm = root.querySelector("#card-form") as HTMLFormElement | null;
   const activateFormTab = cardForm ? setupFormTabs(cardForm) : null;
-  void setupDashboard(root, activateFormTab);
+  void setupDashboard(root, activateFormTab, backdrop);
 }
 
 function setupFormTabs(form: HTMLFormElement): (tabId: string) => void {
@@ -280,7 +362,8 @@ function lockNativeScroll(container: HTMLElement): void {
 
 async function setupDashboard(
   root: HTMLElement,
-  activateFormTab: ((tabId: string) => void) | null
+  activateFormTab: ((tabId: string) => void) | null,
+  backdrop: MapEditorBackdrop
 ): Promise<void> {
   let cards: InfoCard[] = [];
   let submissions: StorySubmission[] = [];
@@ -291,15 +374,17 @@ async function setupDashboard(
   let selectedSubmissionId: string | null = null;
   /** Card ids that share the selected pin’s location (for group drag / save). */
   let selectedPinSiblingIds: string[] = [];
-  let formState = emptyForm();
+  let cardsTab: CardType = "individual";
+  let submissionsTab: CardType = "individual";
+  let formState = emptyForm(cardsTab);
   let mapEditor: ReturnType<typeof createMapEditor> | null = null;
   let calibrationPanel: ReturnType<typeof createCalibrationPanel> | null = null;
   type EditorPanel = "edit" | "calibrate" | "submissions";
   let activePanel: EditorPanel | null = null;
-  const pendingPreviewEdits = new Map<string, Partial<InfoCard>>();
-  const previewSaveTimers = new Map<string, number>();
 
   const listEl = root.querySelector("#card-list") as HTMLUListElement;
+  const cardsTabButtons = root.querySelectorAll<HTMLButtonElement>("[data-cards-tab]");
+  const submissionsTabButtons = root.querySelectorAll<HTMLButtonElement>("[data-submissions-tab]");
   const submissionListEl = root.querySelector("#submission-list") as HTMLUListElement;
   const submissionCountEl = root.querySelector("#submission-count") as HTMLElement;
   const submissionToggleBadgeEl = root.querySelector("#submission-toggle-badge") as HTMLElement;
@@ -345,8 +430,7 @@ async function setupDashboard(
   };
   const cardsShelfView = root.querySelector("#cards-shelf-view") as HTMLElement;
   const editShelfView = root.querySelector("#edit-shelf-view") as HTMLElement;
-  const impactStoryInput = form.elements.namedItem("body") as HTMLTextAreaElement;
-  let impactStoryMinHeightPx = 0;
+  syncCardFormTypeFields(form, cardsTab);
 
   const showCardsView = (): void => {
     const wasEditView = isEditViewOpen();
@@ -364,34 +448,12 @@ async function setupDashboard(
   const showEditView = (): void => {
     cardsShelfView.hidden = true;
     editShelfView.hidden = false;
-    requestAnimationFrame(captureImpactStoryMinHeight);
     if (activePanel === "edit") {
       refreshMapEditor();
     }
   };
 
   const isEditViewOpen = (): boolean => !editShelfView.hidden;
-
-  const captureImpactStoryMinHeight = (): void => {
-    if (editCardsSection.hidden || impactStoryMinHeightPx > 0) return;
-
-    const height = impactStoryInput.offsetHeight;
-    if (height <= 0) return;
-
-    impactStoryMinHeightPx = height;
-    impactStoryInput.style.minHeight = `${height}px`;
-  };
-
-  const enforceImpactStoryMinHeight = (): void => {
-    if (impactStoryMinHeightPx <= 0) return;
-    if (impactStoryInput.offsetHeight < impactStoryMinHeightPx) {
-      impactStoryInput.style.height = `${impactStoryMinHeightPx}px`;
-    }
-  };
-
-  impactStoryInput.addEventListener("mouseup", enforceImpactStoryMinHeight);
-  impactStoryInput.addEventListener("touchend", enforceImpactStoryMinHeight);
-  void document.fonts.ready.then(captureImpactStoryMinHeight);
 
   const layoutSubmissionsCanvas = (): void => {
     if (submissionsSection.hidden) return;
@@ -429,7 +491,6 @@ async function setupDashboard(
 
     if (activePanel === "edit") {
       requestAnimationFrame(() => {
-        captureImpactStoryMinHeight();
         refreshMapEditor();
       });
     } else if (activePanel === "calibrate") {
@@ -480,7 +541,7 @@ async function setupDashboard(
       onRipplesChange(anchor) {
         ripplesAnchor = anchor;
       },
-    });
+    }, backdrop);
   };
 
   const load = async (): Promise<void> => {
@@ -524,9 +585,78 @@ async function setupDashboard(
     }
   };
 
+  const cardsOfActiveType = (): InfoCard[] =>
+    cards.filter((card) => resolveCardType(card) === cardsTab);
+
+  const setCardsTab = (tab: CardType): void => {
+    if (cardsTab === tab) return;
+    cardsTab = tab;
+    cardsTabButtons.forEach((button) => {
+      const selected = button.dataset.cardsTab === tab;
+      button.classList.toggle("admin-form__tab--active", selected);
+      button.setAttribute("aria-selected", String(selected));
+    });
+
+    if (selectedId) {
+      const selected = cards.find((card) => card.id === selectedId);
+      if (!selected || resolveCardType(selected) !== tab) {
+        selectedId = null;
+        selectedPinSiblingIds = [];
+        formState = emptyForm(tab);
+        fillCardForm(form, formState);
+        syncCardFormTypeFields(form, tab);
+        formTitle.textContent = "Edit card";
+        geocodeResult.textContent = "";
+        updateCardActions();
+        showCardsView();
+      }
+    } else if (!isEditViewOpen()) {
+      formState = { ...formState, cardType: tab };
+      syncCardFormTypeFields(form, tab);
+    }
+
+    renderList();
+    if (activePanel === "edit") {
+      refreshMapEditor();
+    }
+  };
+
+  cardsTabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.cardsTab;
+      if (tab === "individual" || tab === "organization") {
+        setCardsTab(tab);
+      }
+    });
+  });
+
+  const submissionsOfActiveType = (): StorySubmission[] =>
+    submissions.filter((submission) => resolveSubmissionCardType(submission) === submissionsTab);
+
+  const setSubmissionsTab = (tab: CardType): void => {
+    if (submissionsTab === tab) return;
+    submissionsTab = tab;
+    submissionsTabButtons.forEach((button) => {
+      const selected = button.dataset.submissionsTab === tab;
+      button.classList.toggle("admin-form__tab--active", selected);
+      button.setAttribute("aria-selected", String(selected));
+    });
+    renderSubmissions();
+  };
+
+  submissionsTabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.submissionsTab;
+      if (tab === "individual" || tab === "organization") {
+        setSubmissionsTab(tab);
+      }
+    });
+  });
+
   const updateSubmissionActions = (): void => {
     const hasSelection = Boolean(
-      selectedSubmissionId && submissions.some((submission) => submission.id === selectedSubmissionId)
+      selectedSubmissionId &&
+        submissionsOfActiveType().some((submission) => submission.id === selectedSubmissionId)
     );
     submissionApproveBtn.disabled = !hasSelection;
     submissionRejectBtn.disabled = !hasSelection;
@@ -546,7 +676,9 @@ async function setupDashboard(
   const renderSubmissions = (): void => {
     updateSubmissionBadges();
 
-    if (submissions.length === 0) {
+    const visible = submissionsOfActiveType();
+
+    if (visible.length === 0) {
       selectedSubmissionId = null;
       submissionListEl.innerHTML = `<li class="admin-muted">No pending submissions.</li>`;
       if (activePanel === "submissions") {
@@ -556,17 +688,19 @@ async function setupDashboard(
       return;
     }
 
-    if (!selectedSubmissionId || !submissions.some((s) => s.id === selectedSubmissionId)) {
-      selectedSubmissionId = submissions[0].id;
+    if (!selectedSubmissionId || !visible.some((s) => s.id === selectedSubmissionId)) {
+      selectedSubmissionId = visible[0].id;
     }
 
-    submissionListEl.innerHTML = submissions
+    submissionListEl.innerHTML = visible
       .map(
         (submission) => `
           <li>
             <button type="button" data-id="${escapeAttr(submission.id)}" class="admin-card-item ${submission.id === selectedSubmissionId ? "admin-card-item--active" : ""}">
               <strong>${escapeHtml(submission.title)}</strong>
-              <span>${escapeHtml(submission.companyName || "No company")}</span>
+              <span>${escapeHtml(submissionTypeLabel(submission))}${
+                submission.companyName ? ` · ${escapeHtml(submission.companyName)}` : ""
+              }</span>
               <span>${escapeHtml(submission.address)}</span>
               <time class="admin-muted">${formatSubmittedAt(submission.submittedAt)}</time>
             </button>
@@ -596,27 +730,130 @@ async function setupDashboard(
       return;
     }
 
-    const mediaFieldsHtml = [
-      submission.imageUrl
-        ? `
-          <div class="submission-detail__field submission-detail__field--image">
-            <dt>Image</dt>
-            <dd class="submission-detail__image-wrap">
-              <img class="submission-detail__image" src="${escapeAttr(submission.imageUrl)}" alt="" loading="lazy" />
-              <a class="submission-detail__image-link" href="${escapeAttr(submission.imageUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(submission.imageUrl)}</a>
-            </dd>
-          </div>`
-        : "",
-      submission.linkUrl
-        ? `
-          <div class="submission-detail__field">
-            <dt>Link</dt>
-            <dd><a href="${escapeAttr(submission.linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(submission.linkUrl)}</a></dd>
-          </div>`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("");
+    const field = (label: string, value: string | undefined | null, asHtml = false): string => {
+      if (!value) return "";
+      return `
+        <div class="submission-detail__field">
+          <dt>${escapeHtml(label)}</dt>
+          <dd>${asHtml ? value : escapeHtml(value)}</dd>
+        </div>`;
+    };
+
+    const linkField = (label: string, url: string | undefined): string => {
+      if (!url) return "";
+      return field(
+        label,
+        `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`,
+        true
+      );
+    };
+
+    const imageField = (label: string, url: string | undefined): string => {
+      if (!url) return "";
+      return `
+        <div class="submission-detail__field submission-detail__field--image">
+          <dt>${escapeHtml(label)}</dt>
+          <dd class="submission-detail__image-wrap">
+            <img class="submission-detail__image" src="${escapeAttr(url)}" alt="" loading="lazy" />
+            <a class="submission-detail__image-link" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>
+          </dd>
+        </div>`;
+    };
+
+    let metaFields = "";
+    let storyFields = field("Impact story", submission.body);
+    let mediaFields = imageField("Image", submission.imageUrl) + linkField("Link", submission.linkUrl);
+
+    if (isIndividualSubmission(submission)) {
+      metaFields = [
+        field("Type", "Individual"),
+        field("Name", `${submission.firstName} ${submission.lastName}`),
+        field("Pronouns", submission.pronouns),
+        field("techNL member", submission.isTechNlMember),
+        field("Profession", submission.profession.join(", ")),
+        field("Current location", submission.currLocation),
+        field("Hometown", submission.origLocation),
+        submission.contactEmail
+          ? field(
+              "Email",
+              `<a href="mailto:${escapeAttr(submission.contactEmail)}">${escapeHtml(submission.contactEmail)}</a>`,
+              true
+            )
+          : "",
+        field("Newsletter opt-in", submission.optInNewsletter ? "Yes" : "No"),
+        field("Consent", submission.optInModeration ? "Yes" : "No"),
+      ].join("");
+      storyFields = [
+        field("Love about NL", submission.nlDescription),
+        field("Why NL tech", submission.whyDescription),
+        field("Dream job", submission.dreamJob),
+        field("Success story", submission.story),
+        field("Combined body (card)", submission.body),
+      ].join("");
+      mediaFields = imageField("Photo", submission.logoUrl) + linkField("LinkedIn", submission.linkedin);
+    } else if (isOrganizationSubmission(submission)) {
+      metaFields = [
+        field("Type", "Organization"),
+        field("Organization", submission.orgName),
+        field("Submitter", submission.submitterName),
+        submission.submitterEmail
+          ? field(
+              "Submitter email",
+              `<a href="mailto:${escapeAttr(submission.submitterEmail)}">${escapeHtml(submission.submitterEmail)}</a>`,
+              true
+            )
+          : "",
+        submission.orgContactEmail
+          ? field(
+              "Org email",
+              `<a href="mailto:${escapeAttr(submission.orgContactEmail)}">${escapeHtml(submission.orgContactEmail)}</a>`,
+              true
+            )
+          : "",
+        field("techNL member", submission.isTechNlMember),
+        field("Industry", submission.industry.join(", ")),
+        field("Head office", submission.nlLocation),
+        field("Business locations", submission.locations.join("; ")),
+        field(
+          "Export locations",
+          submission.exportLocations?.length ? submission.exportLocations.join("; ") : undefined
+        ),
+        field(
+          "Year established",
+          submission.yearEstablished != null ? String(submission.yearEstablished) : undefined
+        ),
+        field("Newsletter opt-in", submission.optInNewsletter ? "Yes" : "No"),
+        field("Consent", submission.optInModeration ? "Yes" : "No"),
+      ].join("");
+      storyFields = [
+        field("Description", submission.mainDescription),
+        field("Company bio", submission.companyBio),
+        field("Stakeholders", submission.stakeholderDescription),
+        field("Success story", submission.storyDescription),
+        field("Combined body (card)", submission.body),
+      ].join("");
+      mediaFields = [
+        imageField("Logo", submission.logoUrl),
+        imageField("Media 1", submission.mediaOneUrl),
+        imageField("Media 2", submission.mediaTwoUrl),
+        linkField("Website", submission.websiteUrl),
+        linkField("LinkedIn", submission.linkedinUrl),
+        linkField("YouTube", submission.youtubeLink),
+      ].join("");
+    } else {
+      metaFields = [
+        field("Type", "Story"),
+        field("Company", submission.companyName || "—"),
+        field("Address", submission.address),
+        submission.contactEmail
+          ? field(
+              "Contact email",
+              `<a href="mailto:${escapeAttr(submission.contactEmail)}">${escapeHtml(submission.contactEmail)}</a>`,
+              true
+            )
+          : "",
+      ].join("");
+    }
 
     submissionDetailHost.innerHTML = `
       <article class="submission-detail">
@@ -626,35 +863,12 @@ async function setupDashboard(
         </header>
         <div class="submission-detail__content">
           <div class="submission-detail__main">
-            <dl class="submission-detail__fields submission-detail__fields--meta">
-              <div class="submission-detail__field">
-                <dt>Company</dt>
-                <dd>${escapeHtml(submission.companyName || "—")}</dd>
-              </div>
-              <div class="submission-detail__field">
-                <dt>Address</dt>
-                <dd>${escapeHtml(submission.address)}</dd>
-              </div>
-              ${
-                submission.contactEmail
-                  ? `
-              <div class="submission-detail__field">
-                <dt>Contact email</dt>
-                <dd><a href="mailto:${escapeAttr(submission.contactEmail)}">${escapeHtml(submission.contactEmail)}</a></dd>
-              </div>`
-                  : ""
-              }
-            </dl>
-            <dl class="submission-detail__fields submission-detail__fields--story">
-              <div class="submission-detail__field">
-                <dt>Impact story</dt>
-                <dd class="submission-detail__body">${escapeHtml(submission.body)}</dd>
-              </div>
-            </dl>
+            <dl class="submission-detail__fields submission-detail__fields--meta">${metaFields}</dl>
+            <dl class="submission-detail__fields submission-detail__fields--story">${storyFields}</dl>
           </div>
           ${
-            mediaFieldsHtml
-              ? `<dl class="submission-detail__fields submission-detail__fields--media">${mediaFieldsHtml}</dl>`
+            mediaFields
+              ? `<dl class="submission-detail__fields submission-detail__fields--media">${mediaFields}</dl>`
               : ""
           }
         </div>
@@ -700,6 +914,7 @@ async function setupDashboard(
       try {
         const result = await geocodeAddress(address);
         applyGeocodeToForm(result);
+        const match = snapNewCardToExistingPin();
         const saved = await updateCard(card.id, {
           address: formState.address,
           lat: formState.lat,
@@ -708,7 +923,9 @@ async function setupDashboard(
           mapY: formState.mapY,
         });
         applySavedCard(saved);
-        geocodeResult.textContent = `Approved and placed at ${result.displayName}. Drag the pin to fine-tune if needed.${geocodeAccuracyNote()}`;
+        geocodeResult.textContent =
+          `Approved and placed at ${result.displayName}. Drag the pin to fine-tune if needed.${geocodeAccuracyNote()}` +
+          (match ? existingPinMatchNote(match) : "");
       } catch (geocodeError) {
         geocodeResult.textContent =
           geocodeError instanceof Error
@@ -783,18 +1000,26 @@ async function setupDashboard(
   };
 
   const applySavedCard = (saved: InfoCard): void => {
-    const { id, ...state } = saved;
-    selectedId = id;
-    formState = state;
-    const idx = cards.findIndex((c) => c.id === id);
+    const type = resolveCardType(saved);
+    selectedId = saved.id;
+    formState = hydrateCardFormState(saved);
+    const idx = cards.findIndex((c) => c.id === saved.id);
     if (idx === -1) {
-      cards.push(saved);
+      cards.push({ ...saved, cardType: type });
     } else {
-      cards[idx] = saved;
+      cards[idx] = { ...saved, cardType: type };
+    }
+    if (cardsTab !== type) {
+      cardsTab = type;
+      cardsTabButtons.forEach((button) => {
+        const selected = button.dataset.cardsTab === cardsTab;
+        button.classList.toggle("admin-form__tab--active", selected);
+        button.setAttribute("aria-selected", String(selected));
+      });
     }
     refreshSelectedPinSiblings();
     formTitle.textContent = "Edit card";
-    fillForm(form, formState);
+    fillCardForm(form, formState);
     renderList();
     updateCardActions();
     if (activePanel === "edit") {
@@ -803,11 +1028,12 @@ async function setupDashboard(
   };
 
   const renderList = (): void => {
-    if (cards.length === 0) {
+    const visibleCards = cardsOfActiveType();
+    if (visibleCards.length === 0) {
       listEl.innerHTML = `<li class="admin-muted">No cards yet. Create one.</li>`;
       return;
     }
-    listEl.innerHTML = cards
+    listEl.innerHTML = visibleCards
       .map(
         (card) => `
           <li>
@@ -824,7 +1050,10 @@ async function setupDashboard(
     listEl.querySelectorAll("[data-id]").forEach((button) => {
       const id = button.getAttribute("data-id")!;
       button.addEventListener("click", () => selectCard(id));
-      button.addEventListener("mouseenter", () => mapEditor?.showCardPreview(id));
+      button.addEventListener("mouseenter", () => {
+        if (window.matchMedia("(max-width: 900px)").matches) return;
+        mapEditor?.showCardPreview(id);
+      });
       button.addEventListener("mouseleave", () => mapEditor?.showCardPreview(null));
     });
   };
@@ -832,12 +1061,21 @@ async function setupDashboard(
   const selectCard = (id: string, options: { openEditor?: boolean } = { openEditor: true }): void => {
     const card = cards.find((c) => c.id === id);
     if (!card) return;
+    const type = resolveCardType(card);
     selectedId = id;
-    formState = { ...card };
+    formState = hydrateCardFormState(card);
+    if (cardsTab !== type) {
+      cardsTab = type;
+      cardsTabButtons.forEach((button) => {
+        const selected = button.dataset.cardsTab === cardsTab;
+        button.classList.toggle("admin-form__tab--active", selected);
+        button.setAttribute("aria-selected", String(selected));
+      });
+    }
     refreshSelectedPinSiblings();
     formTitle.textContent = "Edit card";
     geocodeResult.textContent = "";
-    fillForm(form, formState);
+    fillCardForm(form, formState);
     renderList();
     updateCardActions();
     if (options.openEditor !== false) {
@@ -850,7 +1088,8 @@ async function setupDashboard(
 
   const refreshMapEditor = (): void => {
     const allowSelectedPinDrag = isEditViewOpen();
-    const groups = groupCardsByLocation(cards);
+    const visibleCards = cardsOfActiveType();
+    const groups = groupCardsByLocation(visibleCards);
     const selectedPinId =
       allowSelectedPinDrag && selectedId ? locationKey(formState.mapX, formState.mapY) : null;
 
@@ -870,64 +1109,23 @@ async function setupDashboard(
         selectedId: selectedPinId,
         draftPosition:
           allowSelectedPinDrag && !selectedId ? { mapX: formState.mapX, mapY: formState.mapY } : undefined,
+        backdrop,
         toDisplayCoords: mapXYOriginalToAdmin,
         fromDisplayCoords: mapXYAdminToOriginal,
-        previewCards: cards,
+        previewCards: visibleCards,
         allowSelectedPinDrag,
-        editablePreview: true,
       },
       {
         onPinMove(mapX, mapY) {
           applyGroupPinMove(mapX, mapY);
         },
-        onPreviewFieldChange(cardId, field, value) {
-          const idx = cards.findIndex((card) => card.id === cardId);
-          if (idx === -1) return;
-
-          const nextValue = value.trim();
-          const previousValue = String(cards[idx][field] ?? "").trim();
-          if (previousValue === nextValue) return;
-
-          const patch: Partial<InfoCard> = { [field]: nextValue };
-          cards[idx] = { ...cards[idx], ...patch };
-
-          if (selectedId === cardId) {
-            const { id: _id, ...state } = cards[idx];
-            formState = state;
-            fillForm(form, formState);
-          }
-
-          const pending = { ...(pendingPreviewEdits.get(cardId) ?? {}), ...patch };
-          pendingPreviewEdits.set(cardId, pending);
-
-          const existingTimer = previewSaveTimers.get(cardId);
-          if (existingTimer) window.clearTimeout(existingTimer);
-          previewSaveTimers.set(
-            cardId,
-            window.setTimeout(async () => {
-              previewSaveTimers.delete(cardId);
-              const toSave = pendingPreviewEdits.get(cardId);
-              if (!toSave) return;
-              pendingPreviewEdits.delete(cardId);
-              try {
-                formError.textContent = "";
-                const saved = await updateCard(cardId, toSave);
-                const savedIdx = cards.findIndex((card) => card.id === saved.id);
-                if (savedIdx !== -1) {
-                  cards[savedIdx] = saved;
-                }
-                if (selectedId === saved.id) {
-                  const { id: _id, ...state } = saved;
-                  formState = state;
-                  fillForm(form, formState);
-                }
-                renderList();
-                showToast("Card saved.");
-              } catch (error) {
-                formError.textContent = error instanceof Error ? error.message : "Save failed.";
-              }
-            }, 700)
+        onPinActivate(pinId) {
+          const atLocation = visibleCards.filter(
+            (card) => locationKey(card.mapX, card.mapY) === pinId
           );
+          const card = atLocation[0] ?? visibleCards.find((entry) => entry.id === pinId);
+          if (!card) return;
+          selectCard(card.id);
         },
       }
     );
@@ -936,6 +1134,36 @@ async function setupDashboard(
   const geocodeAccuracyNote = (): string =>
     calibrationPoints.length < 2 ? " (approximate — add calibration points for accuracy)" : "";
 
+  /** Reuse an existing pin's coords when name or lat/lng collide (avoids stacked duplicate pins). */
+  const snapNewCardToExistingPin = (): ReturnType<typeof findMatchingPin> => {
+    const match = findMatchingPin(
+      cardsOfActiveType(),
+      {
+        address: formState.address,
+        lat: formState.lat,
+        lng: formState.lng,
+      },
+      { excludeId: selectedId ?? undefined }
+    );
+    if (!match) return undefined;
+    formState.lat = match.card.lat;
+    formState.lng = match.card.lng;
+    formState.mapX = match.card.mapX;
+    formState.mapY = match.card.mapY;
+    fillCardForm(form, formState);
+    mapEditor?.setSelectedPin(match.card.mapX, match.card.mapY);
+    return match;
+  };
+
+  const existingPinMatchNote = (match: NonNullable<ReturnType<typeof findMatchingPin>>): string => {
+    const label = match.card.title || match.card.address || "Untitled";
+    const how =
+      match.reason === "name"
+        ? "same location name"
+        : `within ${Math.round(match.distanceMeters ?? 0)} m`;
+    return ` Matches existing pin "${label}" (${how}). Saving adds another entry at that pin.`;
+  };
+
   const applyGeocodeToForm = (result: GeocodeResult): void => {
     formState.address = result.displayName;
     formState.lat = result.lat;
@@ -943,17 +1171,58 @@ async function setupDashboard(
     const { mapX, mapY } = projectLatLng(projection, result.lat, result.lng);
     formState.mapX = mapX;
     formState.mapY = mapY;
-    fillForm(form, formState);
+    fillCardForm(form, formState);
     mapEditor?.setSelectedPin(mapX, mapY);
+  };
+
+  const recalculatePinFromCalibration = (): void => {
+    formState = readCardForm(form, formState);
+    if (
+      !Number.isFinite(formState.lat) ||
+      !Number.isFinite(formState.lng) ||
+      (formState.lat === 0 && formState.lng === 0)
+    ) {
+      geocodeResult.textContent = "Geocode an address first so lat/lng are set.";
+      return;
+    }
+
+    const { mapX, mapY } = projectLatLng(projection, formState.lat, formState.lng);
+    applyGroupPinMove(mapX, mapY);
+    mapEditor?.setSelectedPin(mapX, mapY);
+    geocodeResult.textContent =
+      `Pin updated from calibration at ${formState.lat.toFixed(4)}°, ${formState.lng.toFixed(4)}°.` +
+      geocodeAccuracyNote() +
+      " Save to keep.";
+  };
+
+  const geocodeFormAddress = async (): Promise<boolean> => {
+    const address = (form.elements.namedItem("address") as HTMLInputElement).value.trim();
+    if (!address) {
+      geocodeResult.textContent = "Enter an address first.";
+      return false;
+    }
+
+    try {
+      geocodeResult.textContent = "Looking up…";
+      const result = await geocodeAddress(address);
+      applyGeocodeToForm(result);
+      const match = snapNewCardToExistingPin();
+      geocodeResult.textContent =
+        result.displayName + geocodeAccuracyNote() + (match ? existingPinMatchNote(match) : "");
+      return true;
+    } catch (error) {
+      geocodeResult.textContent = error instanceof Error ? error.message : "Geocoding failed.";
+      return false;
+    }
   };
 
   root.querySelector("#new-card-btn")?.addEventListener("click", () => {
     selectedId = null;
     selectedPinSiblingIds = [];
-    formState = emptyForm();
+    formState = emptyForm(cardsTab);
     formTitle.textContent = "New card";
     geocodeResult.textContent = "";
-    fillForm(form, formState);
+    fillCardForm(form, formState);
     renderList();
     updateCardActions();
     activateFormTab?.("details");
@@ -971,7 +1240,7 @@ async function setupDashboard(
     selectedId = null;
     selectedPinSiblingIds = [];
     formState = {
-      ...emptyForm(),
+      ...emptyForm(resolveCardType(source)),
       address: source.address,
       lat: source.lat,
       lng: source.lng,
@@ -980,7 +1249,7 @@ async function setupDashboard(
     };
     formTitle.textContent = "New entry at pin";
     geocodeResult.textContent = "";
-    fillForm(form, formState);
+    fillCardForm(form, formState);
     renderList();
     updateCardActions();
     activateFormTab?.("details");
@@ -994,30 +1263,22 @@ async function setupDashboard(
     showCardsView();
   });
 
-  root.querySelector("#geocode-btn")?.addEventListener("click", async () => {
-    const address = (form.elements.namedItem("address") as HTMLInputElement).value.trim();
-    if (!address) {
-      geocodeResult.textContent = "Enter an address first.";
-      return;
-    }
+  root.querySelector("#geocode-btn")?.addEventListener("click", () => {
+    void geocodeFormAddress();
+  });
 
-    try {
-      geocodeResult.textContent = "Looking up…";
-      const result = await geocodeAddress(address);
-      applyGeocodeToForm(result);
-      geocodeResult.textContent = result.displayName + geocodeAccuracyNote();
-    } catch (error) {
-      geocodeResult.textContent = error instanceof Error ? error.message : "Geocoding failed.";
-    }
+  root.querySelector("#recalc-pin-btn")?.addEventListener("click", () => {
+    recalculatePinFromCalibration();
   });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     formError.hidden = true;
     syncPinPositionFromMap();
-    formState = readForm(form, formState);
+    formState = readCardForm(form, formState);
 
     try {
+      const match = snapNewCardToExistingPin();
       const saved = selectedId
         ? await updateCard(selectedId, formState)
         : await createCard(formState);
@@ -1025,7 +1286,7 @@ async function setupDashboard(
         await persistGroupPinMove(formState.mapX, formState.mapY, saved.id);
       }
       applySavedCard(saved);
-      showToast("Card saved.");
+      showToast(match ? `Card saved at existing pin "${match.card.title || "Untitled"}".` : "Card saved.");
     } catch (error) {
       formError.textContent = error instanceof Error ? error.message : "Save failed.";
       formError.hidden = false;
@@ -1039,8 +1300,8 @@ async function setupDashboard(
       await deleteCard(selectedId);
       selectedId = null;
       selectedPinSiblingIds = [];
-      formState = emptyForm();
-      fillForm(form, formState);
+      formState = emptyForm(cardsTab);
+      fillCardForm(form, formState);
       formTitle.textContent = "New card";
       updateCardActions();
       showCardsView();
@@ -1053,33 +1314,6 @@ async function setupDashboard(
   });
 
   await load();
-}
-
-function readForm(form: HTMLFormElement, current: FormState): FormState {
-  const fd = new FormData(form);
-  return {
-    title: String(fd.get("title") || ""),
-    companyName: String(fd.get("companyName") || ""),
-    body: String(fd.get("body") || ""),
-    address: String(fd.get("address") || ""),
-    lat: current.lat,
-    lng: current.lng,
-    mapX: current.mapX,
-    mapY: current.mapY,
-    imageUrl: String(fd.get("imageUrl") || ""),
-    linkUrl: String(fd.get("linkUrl") || ""),
-    active: fd.get("active") === "on",
-  };
-}
-
-function fillForm(form: HTMLFormElement, state: FormState): void {
-  (form.elements.namedItem("title") as HTMLInputElement).value = state.title;
-  (form.elements.namedItem("companyName") as HTMLInputElement).value = state.companyName || "";
-  (form.elements.namedItem("body") as HTMLTextAreaElement).value = state.body;
-  (form.elements.namedItem("address") as HTMLInputElement).value = state.address;
-  (form.elements.namedItem("imageUrl") as HTMLInputElement).value = state.imageUrl || "";
-  (form.elements.namedItem("linkUrl") as HTMLInputElement).value = state.linkUrl || "";
-  (form.elements.namedItem("active") as HTMLInputElement).checked = state.active;
 }
 
 function escapeHtml(value: string): string {

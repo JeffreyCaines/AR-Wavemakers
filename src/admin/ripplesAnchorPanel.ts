@@ -3,7 +3,7 @@ import { mapXYAdminToOriginal, mapXYOriginalToAdmin } from "../shared/geo";
 import { normalizeRipplesAnchor } from "../shared/ripplesAnchor";
 import type { RipplesAnchor, RipplesVariant } from "../shared/types";
 import { getRipplesPlacement } from "../shared/types";
-import { createMapEditor } from "./mapEditor";
+import { createMapEditor, type MapEditorBackdrop } from "./mapEditor";
 
 export interface RipplesAnchorPanelCallbacks {
   onChange: (anchor: RipplesAnchor) => void;
@@ -17,7 +17,8 @@ export function createRipplesAnchorPanel(
   sideHost: HTMLElement,
   mapHost: HTMLElement,
   initialAnchor: RipplesAnchor,
-  callbacks: RipplesAnchorPanelCallbacks
+  callbacks: RipplesAnchorPanelCallbacks,
+  backdrop: MapEditorBackdrop = "image"
 ): { getAnchor: () => RipplesAnchor; refreshMap: () => void; destroy: () => void } {
   let anchor = normalizeRipplesAnchor(initialAnchor);
   let editingVariant: RipplesVariant = anchor.activeVariant;
@@ -112,6 +113,7 @@ export function createRipplesAnchorPanel(
       {
         pins: [],
         selectedId: null,
+        backdrop,
         toDisplayCoords: mapXYOriginalToAdmin,
         fromDisplayCoords: mapXYAdminToOriginal,
         ripplesShader: {

@@ -245,6 +245,99 @@ export async function saveGeocodeCache(cache: Record<string, GeocodeResult>): Pr
   await saveLocalJson("geocode-cache.json", cache);
 }
 
+export type UploadMeta = {
+  id: string;
+  contentType: string;
+  createdAt: string;
+};
+
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const ALLOWED_UPLOAD_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+export function getMaxUploadBytes(): number {
+  return MAX_UPLOAD_BYTES;
+}
+
+export function isAllowedUploadContentType(contentType: string): boolean {
+  return ALLOWED_UPLOAD_TYPES.has(contentType);
+}
+
+async function saveLocalUpload(id: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const dir = path.join(process.cwd(), "data", "uploads");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, `${id}.bin`), bytes);
+  const meta: UploadMeta = { id, contentType, createdAt: new Date().toISOString() };
+  await fs.writeFile(path.join(dir, `${id}.meta.json`), JSON.stringify(meta), "utf-8");
+}
+
+async function loadLocalUpload(
+  id: string
+): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const dir = path.join(process.cwd(), "data", "uploads");
+  try {
+    const bytes = new Uint8Array(await fs.readFile(path.join(dir, `${id}.bin`)));
+    const metaRaw = await fs.readFile(path.join(dir, `${id}.meta.json`), "utf-8");
+    const meta = JSON.parse(metaRaw) as UploadMeta;
+    return { bytes, contentType: meta.contentType || "application/octet-stream" };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveUpload(
+  bytes: Uint8Array,
+  contentType: string
+): Promise<{ id: string; url: string }> {
+  const id = newId();
+  const meta: UploadMeta = { id, contentType, createdAt: new Date().toISOString() };
+
+  if (useLocalStorage()) {
+    await saveLocalUpload(id, bytes, contentType);
+    return { id, url: `/api/uploads/${id}` };
+  }
+
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    await store.set(`uploads/${id}`, bytes);
+    await store.setJSON(`uploads/${id}.meta`, meta);
+    return { id, url: `/api/uploads/${id}` };
+  } catch {
+    // Fall through to local file storage during dev.
+  }
+
+  await saveLocalUpload(id, bytes, contentType);
+  return { id, url: `/api/uploads/${id}` };
+}
+
+export async function loadUpload(
+  id: string
+): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+
+  if (useLocalStorage()) {
+    return loadLocalUpload(id);
+  }
+
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    const store = getStore(STORE_NAME);
+    const data = await store.get(`uploads/${id}`, { type: "arrayBuffer" });
+    if (!data) return null;
+    const meta = (await store.get(`uploads/${id}.meta`, { type: "json" })) as UploadMeta | null;
+    const contentType = meta?.contentType || "application/octet-stream";
+    return { bytes: new Uint8Array(data), contentType };
+  } catch {
+    // Blobs unavailable; fall back to local file.
+  }
+
+  return loadLocalUpload(id);
+}
+
 export function isAuthorized(headers: Headers): boolean {
   const password = process.env.ADMIN_PASSWORD;
   if (!password) {

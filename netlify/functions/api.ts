@@ -1,8 +1,10 @@
 import type { Config, Context } from "@netlify/functions";
 import type { CalibrationPoint, InfoCard, RipplesAnchor, StorySubmission } from "../../src/shared/types";
 import { normalizeRipplesAnchor } from "../../src/shared/ripplesAnchor";
-import { sanitizeStorySubmissionInput } from "../../src/shared/sanitizeStorySubmission";
+import { sanitizeAnyStorySubmissionInput, infoCardPayloadFromSubmission } from "../../src/shared/sanitizeGetNoticed";
 import {
+  getMaxUploadBytes,
+  isAllowedUploadContentType,
   isAuthorized,
   jsonResponse,
   loadCalibration,
@@ -10,12 +12,14 @@ import {
   loadGeocodeCache,
   loadRipplesAnchor,
   loadSubmissions,
+  loadUpload,
   newId,
   saveCalibration,
   saveCards,
   saveGeocodeCache,
   saveRipplesAnchor,
   saveSubmissions,
+  saveUpload,
   unauthorized,
 } from "./_shared/storage";
 
@@ -270,16 +274,11 @@ async function handleSubmissions(req: Request, path: string): Promise<Response> 
     const cards = await loadCards();
     const card: InfoCard = {
       id: newId(),
-      title: submission.title,
-      body: submission.body,
-      companyName: submission.companyName || undefined,
-      address: submission.address,
+      ...infoCardPayloadFromSubmission(submission),
       lat: 0,
       lng: 0,
       mapX: 0.5,
       mapY: 0.5,
-      imageUrl: submission.imageUrl || undefined,
-      linkUrl: submission.linkUrl || undefined,
       active: false,
     };
     cards.push(card);
@@ -308,7 +307,7 @@ async function handleSubmissions(req: Request, path: string): Promise<Response> 
 
     if (method === "POST") {
       const body = await readJson(req);
-      const result = sanitizeStorySubmissionInput(body);
+      const result = sanitizeAnyStorySubmissionInput(body);
       if (!result.ok) {
         return jsonResponse({ error: result.error }, 400);
       }
@@ -317,7 +316,7 @@ async function handleSubmissions(req: Request, path: string): Promise<Response> 
         id: newId(),
         ...result.value,
         submittedAt: new Date().toISOString(),
-      };
+      } as StorySubmission;
 
       const submissions = await loadSubmissions();
       submissions.unshift(submission);
@@ -327,6 +326,64 @@ async function handleSubmissions(req: Request, path: string): Promise<Response> 
   }
 
   return jsonResponse({ error: "Method not allowed" }, 405);
+}
+
+function getUploadId(path: string): string | null {
+  const match = path.match(/\/uploads\/([^/]+)$/);
+  return match?.[1] ?? null;
+}
+
+async function handleUploads(req: Request, path: string): Promise<Response> {
+  const uploadId = getUploadId(path);
+
+  if (uploadId) {
+    if (req.method !== "GET") return jsonResponse({ error: "Method not allowed" }, 405);
+    const file = await loadUpload(uploadId);
+    if (!file) return jsonResponse({ error: "Not found" }, 404);
+    return new Response(file.bytes, {
+      status: 200,
+      headers: {
+        "Content-Type": file.contentType,
+        "Cache-Control": "public, max-age=31536000, immutable",
+      },
+    });
+  }
+
+  if (!path.endsWith("/uploads")) {
+    return jsonResponse({ error: "Not found" }, 404);
+  }
+
+  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+
+  const body = await readJson(req);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return jsonResponse({ error: "Invalid upload payload." }, 400);
+  }
+
+  const raw = body as Record<string, unknown>;
+  const contentType = typeof raw.contentType === "string" ? raw.contentType : "";
+  const data = typeof raw.data === "string" ? raw.data : "";
+  if (!isAllowedUploadContentType(contentType)) {
+    return jsonResponse({ error: "Only JPEG, PNG, WebP, or GIF images are allowed." }, 400);
+  }
+  if (!data) return jsonResponse({ error: "Missing image data." }, 400);
+
+  let bytes: Uint8Array;
+  try {
+    const binary = atob(data.includes(",") ? data.split(",")[1]! : data);
+    bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  } catch {
+    return jsonResponse({ error: "Invalid base64 image data." }, 400);
+  }
+
+  if (bytes.byteLength === 0) return jsonResponse({ error: "Empty image." }, 400);
+  if (bytes.byteLength > getMaxUploadBytes()) {
+    return jsonResponse({ error: "Image must be 4MB or smaller." }, 400);
+  }
+
+  const saved = await saveUpload(bytes, contentType);
+  return jsonResponse({ ok: true, id: saved.id, url: saved.url }, 201);
 }
 
 async function readJson(req: Request): Promise<unknown> {
@@ -351,6 +408,10 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 
   if (path.endsWith("/ripples-anchor")) {
     return handleRipplesAnchor(req);
+  }
+
+  if (path.includes("/uploads")) {
+    return handleUploads(req, path);
   }
 
   if (path.includes("/submissions")) {

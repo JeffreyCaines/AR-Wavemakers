@@ -132,6 +132,21 @@ export async function submitStory(input: StorySubmissionInput): Promise<{ ok: tr
   return parseJson<{ ok: true; id: string }>(response);
 }
 
+export async function uploadImage(file: File): Promise<{ ok: true; id: string; url: string }> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Failed to read image."));
+    reader.readAsDataURL(file);
+  });
+  const response = await fetch("/api/uploads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contentType: file.type || "image/jpeg", data: dataUrl }),
+  });
+  return parseJson<{ ok: true; id: string; url: string }>(response);
+}
+
 export async function fetchSubmissions(): Promise<StorySubmission[]> {
   const response = await fetch("/api/submissions", { headers: authHeaders() });
   return parseJson<StorySubmission[]>(response);

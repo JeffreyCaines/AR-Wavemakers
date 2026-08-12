@@ -73,6 +73,7 @@ html.ar-preview-active body {
     0 0 0 1px rgba(15, 23, 42, 0.08),
     0 20px 60px rgba(15, 23, 42, 0.15);
   overflow: hidden;
+  isolation: isolate;
   background: #000;
   max-width: 100%;
   max-height: 100%;
@@ -96,6 +97,20 @@ html.ar-preview-active body {
   inset: 0;
   height: 100%;
   min-height: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.ar-sim-device .ar-container,
+.ar-sim-device .ar-css-renderer {
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.ar-sim-device--portrait .ar-ui {
+  padding-top: 1.75rem;
+  padding-left: 1.35rem;
+  padding-right: 1.35rem;
 }
 
 .ar-sim-device .ar-app--sim .ar-instructions {
@@ -120,8 +135,8 @@ html.ar-preview-active body {
 }
 
 .ar-sim-device .ar-sheet {
-  height: 60%;
-  max-height: 60%;
+  height: 100%;
+  max-height: none;
   transform: translateY(100%);
   touch-action: none;
 }
@@ -141,12 +156,11 @@ html.ar-preview-active body {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 55%;
-  max-height: 55%;
-  border-radius: 16px 16px 0 0;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  border-bottom: none;
-  box-shadow: 0 -8px 32px rgba(15, 23, 42, 0.12);
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
   padding-top: 0;
   padding-bottom: 0;
 }

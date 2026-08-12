@@ -1,0 +1,53 @@
+.map-viewer.ar-app {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  /* Override .ar-app black fill from shared AR chrome styles. */
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 40%, #faf7f2 0%, transparent 65%),
+    linear-gradient(180deg, #f3efe8 0%, #e9e3d8 100%);
+  color: #2a2a28;
+  font-family: system-ui, sans-serif;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.map-viewer__canvas-wrap {
+  position: absolute;
+  inset: 0;
+}
+
+.map-viewer__canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.map-viewer__css-renderer {
+  z-index: 3;
+}
+
+.map-viewer .ar-ui {
+  z-index: 4;
+}
+
+.map-viewer__status {
+  position: absolute;
+  left: 1.25rem;
+  top: 1rem;
+  z-index: 6;
+  margin: 0;
+  pointer-events: none;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+.map-viewer__status[data-state="error"] {
+  color: #a11f1f;
+  opacity: 1;
+}
+
+.map-viewer__status[hidden] {
+  display: none !important;
+}

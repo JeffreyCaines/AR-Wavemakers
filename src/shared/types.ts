@@ -1,5 +1,16 @@
 import { getRipplesSimDurationMs, getRipplesOriginMapXY } from "./ripplesSim";
 
+export type CardType = "individual" | "organization";
+
+/** Absent or unknown cardType is treated as organization (legacy cards). */
+export function resolveCardType(card: Pick<InfoCard, "cardType">): CardType {
+  return card.cardType === "individual" ? "individual" : "organization";
+}
+
+export function filterCardsByType(cards: readonly InfoCard[], type: CardType): InfoCard[] {
+  return cards.filter((card) => resolveCardType(card) === type);
+}
+
 export interface InfoCard {
   id: string;
   title: string;
@@ -15,6 +26,48 @@ export interface InfoCard {
   imageUrl?: string;
   linkUrl?: string;
   active: boolean;
+  /** Absent on older stored cards; treat as organization. */
+  cardType?: CardType;
+
+  // Individual Get Noticed fields
+  firstName?: string;
+  lastName?: string;
+  pronouns?: string;
+  profession?: string[];
+  currLocation?: string;
+  origLocation?: string;
+  linkedin?: string;
+  email?: string;
+  nlDescription?: string;
+  whyDescription?: string;
+  dreamJob?: string;
+  story?: string;
+
+  // Organization Get Noticed fields
+  submitterName?: string;
+  submitterEmail?: string;
+  orgName?: string;
+  industry?: string[];
+  nlLocation?: string;
+  locations?: string[];
+  websiteUrl?: string;
+  linkedinUrl?: string;
+  orgContactEmail?: string;
+  yearEstablished?: number;
+  mainDescription?: string;
+  companyBio?: string;
+  mediaOneUrl?: string;
+  mediaTwoUrl?: string;
+  youtubeLink?: string;
+  exportLocations?: string[];
+  stakeholderDescription?: string;
+  storyDescription?: string;
+
+  // Shared Get Noticed fields
+  isTechNlMember?: string;
+  logoUrl?: string;
+  optInModeration?: boolean;
+  optInNewsletter?: boolean;
 }
 
 export interface GeocodeResult {
@@ -23,9 +76,14 @@ export interface GeocodeResult {
   displayName: string;
 }
 
-/** Public story submission awaiting admin review before map placement. */
-export interface StorySubmission {
+export type SubmissionType = "legacy" | "individual" | "organization";
+
+/** Shared display fields used by admin list/approve for every submission shape. */
+export interface StorySubmissionCore {
   id: string;
+  submittedAt: string;
+  /** Absent on older stored rows; treat as legacy. */
+  submissionType?: SubmissionType;
   title: string;
   companyName: string;
   body: string;
@@ -33,10 +91,80 @@ export interface StorySubmission {
   contactEmail?: string;
   imageUrl?: string;
   linkUrl?: string;
-  submittedAt: string;
 }
 
-export type StorySubmissionInput = Omit<StorySubmission, "id" | "submittedAt">;
+export interface IndividualSubmissionFields {
+  firstName: string;
+  lastName: string;
+  isTechNlMember: string;
+  pronouns?: string;
+  profession: string[];
+  currLocation: string;
+  origLocation: string;
+  linkedin?: string;
+  email: string;
+  nlDescription?: string;
+  whyDescription?: string;
+  dreamJob?: string;
+  story?: string;
+  optInModeration: boolean;
+  optInNewsletter: boolean;
+  logoUrl: string;
+}
+
+export interface OrganizationSubmissionFields {
+  submitterName: string;
+  submitterEmail: string;
+  orgName: string;
+  isTechNlMember: string;
+  industry: string[];
+  nlLocation: string;
+  locations: string[];
+  websiteUrl: string;
+  linkedinUrl?: string;
+  orgContactEmail: string;
+  yearEstablished?: number;
+  mainDescription?: string;
+  companyBio?: string;
+  mediaOneUrl?: string;
+  mediaTwoUrl?: string;
+  youtubeLink?: string;
+  exportLocations?: string[];
+  stakeholderDescription?: string;
+  storyDescription?: string;
+  optInModeration: boolean;
+  optInNewsletter: boolean;
+  logoUrl: string;
+}
+
+export interface LegacyStorySubmission extends StorySubmissionCore {
+  submissionType?: "legacy";
+}
+
+export interface IndividualStorySubmission extends StorySubmissionCore, IndividualSubmissionFields {
+  submissionType: "individual";
+}
+
+export interface OrganizationStorySubmission extends StorySubmissionCore, OrganizationSubmissionFields {
+  submissionType: "organization";
+}
+
+/** Public story submission awaiting admin review before map placement. */
+export type StorySubmission =
+  | LegacyStorySubmission
+  | IndividualStorySubmission
+  | OrganizationStorySubmission;
+
+export type LegacyStorySubmissionInput = Omit<LegacyStorySubmission, "id" | "submittedAt"> & {
+  submissionType?: "legacy";
+};
+export type IndividualStorySubmissionInput = Omit<IndividualStorySubmission, "id" | "submittedAt">;
+export type OrganizationStorySubmissionInput = Omit<OrganizationStorySubmission, "id" | "submittedAt">;
+
+export type StorySubmissionInput =
+  | LegacyStorySubmissionInput
+  | IndividualStorySubmissionInput
+  | OrganizationStorySubmissionInput;
 
 /**
  * A known place pinned at its true position on the (artistic) reference map.
@@ -133,6 +261,7 @@ export const SEED_CARDS: InfoCard[] = [
     mapX: 0.28,
     mapY: 0.38,
     active: true,
+    cardType: "organization",
   },
   {
     id: "seed-london",
@@ -145,5 +274,6 @@ export const SEED_CARDS: InfoCard[] = [
     mapX: 0.52,
     mapY: 0.35,
     active: true,
+    cardType: "organization",
   },
 ];

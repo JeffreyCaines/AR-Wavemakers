@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createRipplesEffect, type RipplesEffect } from "../ar/ripplesEffect";
-import { MAP_ADMIN_CROP, MAP_REFERENCE_PATH, type RipplesVariant } from "../shared/types";
+import { MAP_ADMIN_CROP, type RipplesVariant } from "../shared/types";
 
 export interface RipplesMapPreview {
   canvas: HTMLCanvasElement;
@@ -8,20 +8,6 @@ export interface RipplesMapPreview {
   setVariant: (variant: RipplesVariant) => void;
   setSize: (width: number, height: number) => void;
   dispose: () => void;
-}
-
-function loadMapTexture(url: string): Promise<THREE.Texture> {
-  return new Promise((resolve, reject) => {
-    new THREE.TextureLoader().load(
-      url,
-      (texture) => {
-        texture.colorSpace = THREE.SRGBColorSpace;
-        resolve(texture);
-      },
-      undefined,
-      reject
-    );
-  });
 }
 
 /** Frame the full-map plane so the visible view matches the admin crop. */
@@ -47,8 +33,8 @@ function applyAdminCropCamera(
 }
 
 /**
- * Admin calibrate preview: full-map + ripples shader (same as AR), framed to the
- * admin crop so the panel matches calibration-points dimensions.
+ * Admin calibrate preview: transparent ripples overlay only.
+ * The map editor's cropped JPEG stays visible underneath (keeps rounding + sharpness).
  */
 export async function createRipplesMapPreview(
   host: HTMLElement,
@@ -63,9 +49,9 @@ export async function createRipplesMapPreview(
 
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
-    alpha: false,
+    alpha: true,
   });
-  renderer.setClearColor(0x000000, 1);
+  renderer.setClearColor(0x000000, 0);
   renderer.autoClear = true;
 
   const canvas = renderer.domElement;
@@ -79,22 +65,16 @@ export async function createRipplesMapPreview(
   camera.position.z = 1;
   applyAdminCropCamera(camera, mapHeight);
 
-  const mapTexture = await loadMapTexture(MAP_REFERENCE_PATH);
-  const mapGeometry = new THREE.PlaneGeometry(1, mapHeight);
-  const mapMaterial = new THREE.MeshBasicMaterial({ map: mapTexture });
-  const mapMesh = new THREE.Mesh(mapGeometry, mapMaterial);
-  scene.add(mapMesh);
-
   const effect: RipplesEffect = await createRipplesEffect(
     fullAspect,
     options.variant,
     options.originMapX,
     options.originMapY
   );
-  effect.mesh.position.z = 0.002;
+  effect.mesh.position.z = 0;
   effect.setLooping(true);
   effect.start();
-  mapMesh.add(effect.mesh);
+  scene.add(effect.mesh);
 
   let disposed = false;
   let rafId = 0;
@@ -125,9 +105,6 @@ export async function createRipplesMapPreview(
       disposed = true;
       cancelAnimationFrame(rafId);
       effect.dispose();
-      mapGeometry.dispose();
-      mapMaterial.dispose();
-      mapTexture.dispose();
       renderer.dispose();
       canvas.remove();
     },

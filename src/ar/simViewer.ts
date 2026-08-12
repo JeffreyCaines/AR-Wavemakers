@@ -10,20 +10,25 @@ import { getRipplesSimDurationSec, RIPPLE_MASK_HEIGHT, RIPPLE_MASK_WIDTH } from 
 import {
   DEFAULT_MAP_ASPECT_RATIO,
   DEFAULT_RIPPLES_ANCHOR,
+  filterCardsByType,
   getActiveRipplesPlacement,
   MAP_REFERENCE_PATH,
 } from "../shared/types";
-import type { InfoCard, RipplesAnchor } from "../shared/types";
+import type { CardType, InfoCard, RipplesAnchor } from "../shared/types";
 import { createRipplesEffect, type RipplesEffect } from "./ripplesEffect";
+import { playArSound, preloadArSounds, stopArSound, unlockArSounds } from "./sounds";
 import {
   applyPinVisibility,
+  AR_CARD_TYPE_TOGGLE_HTML,
   createActiveCardTracker,
   createCardDetailSheet,
   createOverlaysFromCards,
   pinUnlockTimingOffset,
+  removeOverlaysFromParent,
   RIPPLES_REVEAL_DELAY_MS,
   updatePointing,
   updateTrackingUI,
+  wireArCardTypeToggle,
   type ActiveCardTracker,
   type CardOverlay,
 } from "./viewerShared";
@@ -82,6 +87,7 @@ export function initArSimViewer(root: HTMLElement): void {
           <div class="ar-app ar-app--running ar-app--sim">
             <div id="ar-container" class="ar-container"></div>
             <div class="ar-ui">
+              ${AR_CARD_TYPE_TOGGLE_HTML}
               <div class="ar-instructions">
                 <header class="ar-header ar-header--compact">
                   <p class="ar-subtitle">Desktop preview</p>
@@ -137,6 +143,8 @@ export function initArSimViewer(root: HTMLElement): void {
 
   let activeCardTracker: ActiveCardTracker | null = null;
   let overlays: CardOverlay[] = [];
+  let allCards: InfoCard[] = [];
+  let cardTypeFilter: CardType = "organization";
   let aspectRatio = DEFAULT_MAP_ASPECT_RATIO;
   let renderer: THREE.WebGLRenderer | null = null;
   let cssRenderer: CSS2DRenderer | null = null;
@@ -172,6 +180,7 @@ export function initArSimViewer(root: HTMLElement): void {
   window.addEventListener("popstate", onPopState);
 
   replayBtn.addEventListener("click", () => {
+    unlockArSounds();
     replayRipplesReveal();
   });
 
@@ -220,6 +229,23 @@ export function initArSimViewer(root: HTMLElement): void {
     pinsFullyRevealed = true;
   }
 
+  function rebuildOverlays(): void {
+    if (!anchorGroup) return;
+    if (detailSheet.isOpen()) {
+      detailSheet.dismiss();
+      activeCardTracker?.resetSheetTimer();
+    }
+    removeOverlaysFromParent(overlays, anchorGroup);
+    overlays = createOverlaysFromCards(filterCardsByType(allCards, cardTypeFilter), aspectRatio);
+    overlays.forEach(({ markerObject, panelObject }) => {
+      anchorGroup!.add(markerObject);
+      anchorGroup!.add(panelObject);
+    });
+    syncPinVisibility();
+    clearActivePinVisuals();
+    activeCardTracker?.handleActiveOverlay(null);
+  }
+
   function allActivePinsVisibleAt(elapsedSec: number | null): boolean {
     if (overlays.length === 0) return true;
     return overlays.every((overlay) =>
@@ -247,6 +273,7 @@ export function initArSimViewer(root: HTMLElement): void {
       ripplesTimer = null;
     }
     ripplesShowGeneration += 1;
+    stopArSound("pulse");
     ripplesEffect?.stop();
     if (!pinsFullyRevealed) {
       allowPinTargeting = false;
@@ -258,6 +285,7 @@ export function initArSimViewer(root: HTMLElement): void {
 
   function startRipplesPlaybackClock(): void {
     if (!tracking || !ripplesEffect) return;
+    playArSound("pulse");
     ripplesEffect.start();
     syncPinVisibility();
     maybeUnlockWhenAllPinsVisible();
@@ -360,6 +388,14 @@ export function initArSimViewer(root: HTMLElement): void {
 
   window.addEventListener("resize", onResize);
 
+  wireArCardTypeToggle(root, (type) => {
+    if (cardTypeFilter === type) return;
+    cardTypeFilter = type;
+    rebuildOverlays();
+  });
+
+  preloadArSounds();
+  unlockArSounds();
   void bootstrap();
 
   async function bootstrap(): Promise<void> {
@@ -369,6 +405,7 @@ export function initArSimViewer(root: HTMLElement): void {
         fetchActiveCards(),
         fetchRipplesAnchorConfig().catch(() => ({ ...DEFAULT_RIPPLES_ANCHOR })),
       ]);
+      allCards = cards;
       ripplesAnchor = anchor;
       await initScene(cards);
       statusEl.textContent = "Map detected. Aim at a location.";
@@ -379,7 +416,7 @@ export function initArSimViewer(root: HTMLElement): void {
     }
   }
 
-  async function initScene(cards: InfoCard[]): Promise<void> {
+  async function initScene(_cards: InfoCard[]): Promise<void> {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(60, 1, 0.01, 100);
 
@@ -413,7 +450,7 @@ export function initArSimViewer(root: HTMLElement): void {
     );
     anchorGroup.add(ripplesEffect.mesh);
 
-    overlays = createOverlaysFromCards(cards, aspectRatio);
+    overlays = createOverlaysFromCards(filterCardsByType(allCards, cardTypeFilter), aspectRatio);
     overlays.forEach(({ markerObject, panelObject }) => {
       anchorGroup!.add(markerObject);
       anchorGroup!.add(panelObject);
