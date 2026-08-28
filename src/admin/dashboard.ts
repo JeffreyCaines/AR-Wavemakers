@@ -2,18 +2,20 @@ import "./styles.css";
 import techNlLogoUrl from "../images/TechNL-Logo_Black.webp";
 import {
   approveSubmission,
-  clearAdminToken,
   createCard,
   deleteCard,
+  fetchAdminMe,
   fetchAllCards,
   fetchCalibration,
   fetchRipplesAnchor,
   fetchSubmissions,
   geocodeAddress,
   getAdminToken,
+  logoutAdmin,
   rejectSubmission,
   updateCard,
 } from "../shared/api";
+import type { AdminRole } from "../shared/adminAuth";
 import { buildProjection, mapXYAdminToOriginal, mapXYOriginalToAdmin, projectLatLng, type Projection } from "../shared/geo";
 import {
   findGroupForCardId,
@@ -30,6 +32,7 @@ import type {
   StorySubmission,
 } from "../shared/types";
 import { MAP_ADMIN_CROP, MAP_ADMIN_REFERENCE_PATH } from "../shared/types";
+import { safeHref } from "../shared/cardContent";
 import {
   isIndividualSubmission,
   isOrganizationSubmission,
@@ -46,6 +49,8 @@ import {
   type CardFormState,
 } from "./cardForm";
 import { createCalibrationPanel } from "./calibrationPanel";
+import { accountsSectionHtml, createAdminDialogHtml, deleteAccountDialogHtml, resetPasswordDialogHtml, setupAccountsPanel } from "./accountsPanel";
+import { changePasswordDialogHtml, setupChangePasswordDialog } from "./changePasswordDialog";
 import { renderAdminLogin } from "./login";
 import { createMapEditor, type MapEditorBackdrop } from "./mapEditor";
 
@@ -79,26 +84,53 @@ const emptyForm = (cardType: CardType = "organization"): FormState => emptyCardF
 export function initAdminDashboard(root: HTMLElement, options: AdminDashboardOptions = {}): void {
   const backdrop = options.backdrop ?? "image";
   const title = options.title ?? "Admin Dashboard";
-  const subtitle = options.subtitle ?? "Enter the admin password to manage info cards.";
+  const subtitle = options.subtitle ?? "Sign in with your admin email and password to manage info cards.";
+
+  const enterDashboard = (): void => {
+    void (async () => {
+      try {
+        const me = await fetchAdminMe();
+        if (me.mustChangePassword) {
+          renderAdminLogin(root, {
+            title,
+            subtitle: "Create a new password to finish signing in.",
+            mode: "change-password",
+            email: me.email,
+            onSuccess: enterDashboard,
+          });
+          return;
+        }
+        renderDashboard(root, { backdrop, title, subtitle, role: me.role, email: me.email });
+      } catch {
+        await logoutAdmin();
+        renderAdminLogin(root, {
+          title,
+          subtitle,
+          onSuccess: enterDashboard,
+        });
+      }
+    })();
+  };
 
   if (!getAdminToken()) {
     renderAdminLogin(root, {
       title,
       subtitle,
-      onSuccess: () => renderDashboard(root, { backdrop, title }),
+      onSuccess: enterDashboard,
     });
     return;
   }
 
-  renderDashboard(root, { backdrop, title });
+  enterDashboard();
 }
 
 function renderDashboard(
   root: HTMLElement,
-  options: { backdrop: MapEditorBackdrop; title: string }
+  options: { backdrop: MapEditorBackdrop; title: string; subtitle: string; role: AdminRole; email: string }
 ): void {
-  const { backdrop, title } = options;
-  document.title = `${title} · techNL Wavemakers`;
+  const { backdrop, title, subtitle, role, email } = options;
+  const isProjectAdmin = role === "project_admin";
+  document.title = `${title} · Wavemakers`;
   root.innerHTML = `
     <div class="admin">
       <header class="admin-header">
@@ -114,6 +146,9 @@ function renderDashboard(
           <button type="button" id="submissions-toggle-btn" class="admin-btn admin-btn--ghost" aria-expanded="false">
             Review Submissions <span id="submission-toggle-badge" class="admin-badge" hidden>0</span>
           </button>
+          <button type="button" id="accounts-toggle-btn" class="admin-btn admin-btn--ghost" aria-expanded="false">${
+            isProjectAdmin ? "Accounts" : "Account"
+          }</button>
         </nav>
         <div class="admin-header__menu">
           <button
@@ -132,10 +167,8 @@ function renderDashboard(
             </svg>
           </button>
           <div id="admin-header-actions" class="admin-header__actions">
-            <a href="/share-story.html" class="admin-link">Share Story Form</a>
-            <a href="/ar-preview" class="admin-link">Open AR Viewer</a>
+            <a href="/ar" id="admin-ar-viewer-link" class="admin-link" target="_blank" rel="noopener noreferrer">Open AR Viewer</a>
             <a href="/admin-manual.html" class="admin-link" target="_blank" rel="noopener noreferrer">User Manual</a>
-            <button type="button" id="logout-btn" class="admin-btn--pill">Sign Out</button>
           </div>
         </div>
       </header>
@@ -197,8 +230,24 @@ function renderDashboard(
               <aside class="admin-canvas__cards" aria-label="Calibration">
                 <div class="admin-canvas__cards-inner">
                   <div class="admin-canvas__cards-view">
-                    <div class="admin-canvas__cards-toolbar">
+                    <div class="admin-canvas__cards-toolbar admin-canvas__cards-toolbar--split">
                       <h2>Map calibration</h2>
+                      <div class="calibration-info">
+                        <button
+                          type="button"
+                          id="calibration-info-btn"
+                          class="calibration-info__btn"
+                          aria-label="Calibration fit info"
+                          aria-expanded="false"
+                          aria-controls="calibration-info-tip"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+                            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
+                          </svg>
+                        </button>
+                        <p id="calibration-info-tip" class="calibration-info__tip" role="tooltip" hidden></p>
+                      </div>
                     </div>
                     <div id="calibration-side-host" class="calibration-side admin-form admin-form--edit"></div>
                   </div>
@@ -212,7 +261,10 @@ function renderDashboard(
             <div class="admin-canvas__row">
               <div class="admin-canvas__detail admin-canvas__map">
                 <div class="submissions-detail__backdrop" aria-hidden="true">
-                  <img
+                  ${
+                    backdrop === "model3d"
+                      ? `<div id="submissions-map-host" class="submissions-detail__map-host"></div>`
+                      : `<img
                     class="submissions-detail__map submissions-detail__map--base"
                     src="${MAP_ADMIN_REFERENCE_PATH}"
                     alt=""
@@ -225,12 +277,25 @@ function renderDashboard(
                     alt=""
                     decoding="async"
                     draggable="false"
-                  />
+                  />`
+                  }
                 </div>
                 <div class="submissions-detail__frost">
                   <div class="admin-canvas__cards-inner">
                     <div class="admin-canvas__cards-view">
+                      <button type="button" class="submission-detail__back" data-submission-back aria-label="Back to pending submissions">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+                        </svg>
+                      </button>
                       <div id="submission-detail-host" class="admin-scroll admin-canvas__cards-body"></div>
+                      <div class="submission-detail__mobile-actions">
+                        <div class="submission-sidebar__actions">
+                          <button type="button" class="admin-btn--pill" data-submission-approve>Approve</button>
+                          <button type="button" class="admin-btn--pill admin-btn--pill--purple" data-submission-reject>Reject</button>
+                        </div>
+                        <p class="admin-error" data-submission-mobile-error hidden></p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -265,28 +330,89 @@ function renderDashboard(
             </div>
           </div>
         </section>
+        ${accountsSectionHtml(
+          isProjectAdmin ? { mode: "manage" } : { mode: "settings", email, role }
+        )}
       </div>
+      ${changePasswordDialogHtml()}
+      ${isProjectAdmin ? createAdminDialogHtml() : ""}
+      ${isProjectAdmin ? resetPasswordDialogHtml() : ""}
+      ${isProjectAdmin ? deleteAccountDialogHtml() : ""}
       ${renderAdminSiteFooter()}
     </div>
   `;
 
-  root.querySelector("#logout-btn")?.addEventListener("click", () => {
-    clearAdminToken();
-    renderAdminLogin(root, {
-      title,
-      subtitle: "Enter the admin password to manage info cards.",
-      onSuccess: () => renderDashboard(root, { backdrop, title }),
+  root.querySelector("#accounts-section")?.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element) || !event.target.closest("[data-logout]")) return;
+    void logoutAdmin().then(() => {
+      renderAdminLogin(root, {
+        title,
+        subtitle,
+        onSuccess: () => initAdminDashboard(root, { backdrop, title, subtitle }),
+      });
     });
   });
 
+  const header = root.querySelector(".admin-header") as HTMLElement | null;
+  const headerBrand = root.querySelector(".admin-header__brand") as HTMLElement | null;
+  const headerNav = root.querySelector(".admin-header__nav") as HTMLElement | null;
   const headerMenu = root.querySelector(".admin-header__menu") as HTMLElement | null;
   const headerMenuBtn = root.querySelector("#admin-header-menu-btn") as HTMLButtonElement | null;
+  const headerActions = root.querySelector(".admin-header__actions") as HTMLElement | null;
 
   const setHeaderMenuOpen = (open: boolean): void => {
     if (!headerMenu || !headerMenuBtn) return;
     headerMenu.classList.toggle("is-open", open);
     headerMenuBtn.setAttribute("aria-expanded", String(open));
     headerMenuBtn.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+  };
+
+  const flexRowContentWidth = (el: HTMLElement): number => {
+    const style = getComputedStyle(el);
+    const gap = Number.parseFloat(style.columnGap) || Number.parseFloat(style.gap) || 0;
+    let width = 0;
+    let visible = 0;
+    for (const child of el.children) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (getComputedStyle(child).display === "none") continue;
+      width += child.getBoundingClientRect().width;
+      visible += 1;
+    }
+    if (visible > 1) width += gap * (visible - 1);
+    return width;
+  };
+
+  const measureActionsInlineWidth = (actions: HTMLElement): number => {
+    if (getComputedStyle(actions).display !== "none") {
+      return Math.ceil(actions.scrollWidth);
+    }
+    const probe = actions.cloneNode(true) as HTMLElement;
+    probe.removeAttribute("id");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText =
+      "display:flex;flex-direction:row;flex-wrap:nowrap;position:absolute;visibility:hidden;pointer-events:none;inset:auto auto 0 0;";
+    actions.parentElement?.appendChild(probe);
+    const width = Math.ceil(probe.scrollWidth);
+    probe.remove();
+    return width;
+  };
+
+  const syncHeaderOverflow = (): void => {
+    if (!header?.isConnected || !headerBrand || !headerNav || !headerMenuBtn || !headerActions) return;
+    const headerStyle = getComputedStyle(header);
+    const padX =
+      (Number.parseFloat(headerStyle.paddingLeft) || 0) + (Number.parseFloat(headerStyle.paddingRight) || 0);
+    const gap = Number.parseFloat(headerStyle.columnGap) || Number.parseFloat(headerStyle.gap) || 0;
+    const available = header.clientWidth - padX;
+    const expandedNeeded =
+      flexRowContentWidth(headerBrand) +
+      flexRowContentWidth(headerNav) +
+      measureActionsInlineWidth(headerActions) +
+      gap * 2;
+    const compact = expandedNeeded > available + 0.5;
+    if (header.classList.contains("admin-header--compact") === compact) return;
+    header.classList.toggle("admin-header--compact", compact);
+    if (!compact) setHeaderMenuOpen(false);
   };
 
   headerMenuBtn?.addEventListener("click", (event) => {
@@ -306,14 +432,17 @@ function renderDashboard(
     setHeaderMenuOpen(false);
   });
 
-  window.matchMedia("(max-width: 720px)").addEventListener("change", (event) => {
-    if (!event.matches) setHeaderMenuOpen(false);
+  const headerOverflowObserver = new ResizeObserver(() => {
+    syncHeaderOverflow();
   });
+  if (header) headerOverflowObserver.observe(header);
+  if (headerNav) headerOverflowObserver.observe(headerNav);
+  syncHeaderOverflow();
 
   lockNativeScroll(root.querySelector(".admin") as HTMLElement);
   const cardForm = root.querySelector("#card-form") as HTMLFormElement | null;
   const activateFormTab = cardForm ? setupFormTabs(cardForm) : null;
-  void setupDashboard(root, activateFormTab, backdrop);
+  void setupDashboard(root, activateFormTab, backdrop, role, email);
 }
 
 function setupFormTabs(form: HTMLFormElement): (tabId: string) => void {
@@ -363,7 +492,9 @@ function lockNativeScroll(container: HTMLElement): void {
 async function setupDashboard(
   root: HTMLElement,
   activateFormTab: ((tabId: string) => void) | null,
-  backdrop: MapEditorBackdrop
+  backdrop: MapEditorBackdrop,
+  role: AdminRole,
+  sessionEmail: string
 ): Promise<void> {
   let cards: InfoCard[] = [];
   let submissions: StorySubmission[] = [];
@@ -372,14 +503,16 @@ async function setupDashboard(
   let projection: Projection = buildProjection([]);
   let selectedId: string | null = null;
   let selectedSubmissionId: string | null = null;
+  let submissionsMobileDetailOpen = false;
   /** Card ids that share the selected pin’s location (for group drag / save). */
   let selectedPinSiblingIds: string[] = [];
   let cardsTab: CardType = "individual";
   let submissionsTab: CardType = "individual";
   let formState = emptyForm(cardsTab);
   let mapEditor: ReturnType<typeof createMapEditor> | null = null;
+  let submissionsMapEditor: ReturnType<typeof createMapEditor> | null = null;
   let calibrationPanel: ReturnType<typeof createCalibrationPanel> | null = null;
-  type EditorPanel = "edit" | "calibrate" | "submissions";
+  type EditorPanel = "edit" | "calibrate" | "submissions" | "accounts";
   let activePanel: EditorPanel | null = null;
 
   const listEl = root.querySelector("#card-list") as HTMLUListElement;
@@ -392,6 +525,7 @@ async function setupDashboard(
   const submissionApproveBtn = root.querySelector("#submission-approve-btn") as HTMLButtonElement;
   const submissionRejectBtn = root.querySelector("#submission-reject-btn") as HTMLButtonElement;
   const submissionDetailError = root.querySelector("#submission-detail-error") as HTMLElement;
+  const submissionMobileError = root.querySelector("[data-submission-mobile-error]") as HTMLElement | null;
   const form = root.querySelector("#card-form") as HTMLFormElement;
   const formTitle = root.querySelector("#form-title") as HTMLElement;
   const formError = root.querySelector("#form-error") as HTMLElement;
@@ -401,11 +535,14 @@ async function setupDashboard(
   const adminLayout = root.querySelector(".admin-layout") as HTMLElement;
   const submissionsSection = root.querySelector("#submissions-section") as HTMLElement;
   const submissionsDetailPanel = submissionsSection.querySelector(".admin-canvas__detail") as HTMLElement;
+  const submissionsMapHost = root.querySelector("#submissions-map-host") as HTMLElement | null;
   const calibrationSideHost = root.querySelector("#calibration-side-host") as HTMLElement;
   const calibrationMapHost = root.querySelector("#calibration-map-host") as HTMLElement;
   const editCardsToggleBtn = root.querySelector("#edit-cards-toggle-btn") as HTMLButtonElement;
   const calibrateToggleBtn = root.querySelector("#calibrate-toggle-btn") as HTMLButtonElement;
   const submissionsToggleBtn = root.querySelector("#submissions-toggle-btn") as HTMLButtonElement;
+  const accountsToggleBtn = root.querySelector("#accounts-toggle-btn") as HTMLButtonElement | null;
+  const accountsSection = root.querySelector("#accounts-section") as HTMLElement | null;
   const mapHost = root.querySelector("#map-editor-host") as HTMLElement;
   const deleteBtn = root.querySelector("#delete-btn") as HTMLButtonElement;
   const addEntryBtn = root.querySelector("#add-entry-btn") as HTMLButtonElement;
@@ -428,6 +565,16 @@ async function setupDashboard(
       }, 280);
     }, 2400);
   };
+  const changePasswordDialog = setupChangePasswordDialog(root, { showToast, email: sessionEmail });
+  accountsSection?.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element) || !event.target.closest("[data-change-password]")) return;
+    changePasswordDialog.open();
+  });
+  const accountsPanel = setupAccountsPanel(root, {
+    showToast,
+    sessionEmail,
+    canManage: role === "project_admin",
+  });
   const cardsShelfView = root.querySelector("#cards-shelf-view") as HTMLElement;
   const editShelfView = root.querySelector("#edit-shelf-view") as HTMLElement;
   syncCardFormTypeFields(form, cardsTab);
@@ -457,16 +604,57 @@ async function setupDashboard(
 
   const layoutSubmissionsCanvas = (): void => {
     if (submissionsSection.hidden) return;
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      resetCanvasMainPanel(submissionsSection, submissionsDetailPanel);
+      return;
+    }
+    if (submissionsMapHost) {
+      return;
+    }
+    const mapImage = submissionsSection.querySelector(".submissions-detail__map--base") as HTMLImageElement | null;
+    const aspectWidth =
+      mapImage && mapImage.naturalWidth > 0 ? mapImage.naturalWidth : MAP_ADMIN_CROP.width;
+    const aspectHeight =
+      mapImage && mapImage.naturalHeight > 0 ? mapImage.naturalHeight : MAP_ADMIN_CROP.height;
     fitCanvasMainPanel(
       submissionsSection,
       submissionsDetailPanel,
-      MAP_ADMIN_CROP.width,
-      MAP_ADMIN_CROP.height
+      aspectWidth,
+      aspectHeight
     );
   };
 
+  const syncSubmissionsMobileView = (): void => {
+    const compact = window.matchMedia("(max-width: 900px)").matches;
+    const showDetail = compact && submissionsMobileDetailOpen && Boolean(selectedSubmissionId);
+    submissionsSection.classList.toggle("admin-canvas--submissions-mobile-detail", showDetail);
+  };
+
   const resetSubmissionsCanvasLayout = (): void => {
+    submissionsMapEditor?.destroy();
+    submissionsMapEditor = null;
     resetCanvasMainPanel(submissionsSection, submissionsDetailPanel);
+  };
+
+  const refreshSubmissionsMap = (): void => {
+    if (!submissionsMapHost) return;
+    submissionsMapEditor?.destroy();
+    submissionsMapEditor = createMapEditor(
+      submissionsMapHost,
+      {
+        pins: [],
+        selectedId: null,
+        backdrop,
+        toDisplayCoords: mapXYOriginalToAdmin,
+        fromDisplayCoords: mapXYAdminToOriginal,
+        allowSelectedPinDrag: false,
+      },
+      {
+        onPinMove() {
+          /* Background only. */
+        },
+      }
+    );
   };
 
   const updatePanelVisibility = (): void => {
@@ -475,19 +663,24 @@ async function setupDashboard(
     editCardsSection.hidden = activePanel !== "edit";
     calibrateSection.hidden = activePanel !== "calibrate";
     adminLayout.classList.toggle("admin-layout--canvas", isCanvasMode);
+    adminLayout.classList.toggle("admin-layout--accounts", activePanel === "accounts");
     submissionsSection.hidden = activePanel !== "submissions";
+    if (accountsSection) accountsSection.hidden = activePanel !== "accounts";
     if (wasSubmissions && activePanel !== "submissions") {
       resetSubmissionsCanvasLayout();
     }
     if (activePanel !== "submissions") {
-      submissionsSection.classList.remove("admin-canvas--submissions-open");
+      submissionsMobileDetailOpen = false;
+      submissionsSection.classList.remove("admin-canvas--submissions-open", "admin-canvas--submissions-mobile-detail");
     }
     editCardsToggleBtn.setAttribute("aria-expanded", String(activePanel === "edit"));
     calibrateToggleBtn.setAttribute("aria-expanded", String(activePanel === "calibrate"));
     submissionsToggleBtn.setAttribute("aria-expanded", String(activePanel === "submissions"));
+    accountsToggleBtn?.setAttribute("aria-expanded", String(activePanel === "accounts"));
     editCardsToggleBtn.classList.toggle("admin-btn--active", activePanel === "edit");
     calibrateToggleBtn.classList.toggle("admin-btn--active", activePanel === "calibrate");
     submissionsToggleBtn.classList.toggle("admin-btn--active", activePanel === "submissions");
+    accountsToggleBtn?.classList.toggle("admin-btn--active", activePanel === "accounts");
 
     if (activePanel === "edit") {
       requestAnimationFrame(() => {
@@ -497,9 +690,14 @@ async function setupDashboard(
       requestAnimationFrame(() => calibrationPanel?.refreshMap());
     } else if (activePanel === "submissions") {
       submissionsSection.classList.remove("admin-canvas--submissions-open");
+      if (window.matchMedia("(max-width: 900px)").matches) {
+        submissionsMobileDetailOpen = false;
+      }
+      syncSubmissionsMobileView();
       renderSubmissionDetail();
       requestAnimationFrame(() => {
         layoutSubmissionsCanvas();
+        refreshSubmissionsMap();
         requestAnimationFrame(() => {
           submissionsSection.classList.add("admin-canvas--submissions-open");
         });
@@ -515,12 +713,40 @@ async function setupDashboard(
       }
       renderSubmissions();
     }
+    if (activePanel === "accounts") {
+      void accountsPanel.refresh();
+    }
     updatePanelVisibility();
   };
 
-  editCardsToggleBtn.addEventListener("click", () => togglePanel("edit"));
-  calibrateToggleBtn.addEventListener("click", () => togglePanel("calibrate"));
-  submissionsToggleBtn.addEventListener("click", () => togglePanel("submissions"));
+  editCardsToggleBtn.addEventListener("click", () => {
+    togglePanel("edit");
+  });
+  calibrateToggleBtn.addEventListener("click", () => {
+    if (window.matchMedia("(max-width: 900px)").matches) return;
+    togglePanel("calibrate");
+  });
+  submissionsToggleBtn.addEventListener("click", () => {
+    togglePanel("submissions");
+  });
+  accountsToggleBtn?.addEventListener("click", () => {
+    togglePanel("accounts");
+  });
+
+  const compactCalibrateMq = window.matchMedia("(max-width: 900px)");
+  const closeCalibrateOnMobile = (): void => {
+    if (!compactCalibrateMq.matches) return;
+    if (activePanel !== "calibrate") return;
+    activePanel = null;
+    updatePanelVisibility();
+  };
+  compactCalibrateMq.addEventListener("change", closeCalibrateOnMobile);
+  closeCalibrateOnMobile();
+  compactCalibrateMq.addEventListener("change", () => {
+    if (!compactCalibrateMq.matches) submissionsMobileDetailOpen = false;
+    syncSubmissionsMobileView();
+    layoutSubmissionsCanvas();
+  });
 
   const submissionsResizeObserver = new ResizeObserver(() => layoutSubmissionsCanvas());
   submissionsResizeObserver.observe(adminLayout);
@@ -579,9 +805,18 @@ async function setupDashboard(
   const selectSubmission = (id: string): void => {
     if (!submissions.some((s) => s.id === id)) return;
     selectedSubmissionId = id;
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      submissionsMobileDetailOpen = true;
+    }
     renderSubmissions();
     if (activePanel === "submissions") {
       renderSubmissionDetail();
+      syncSubmissionsMobileView();
+      submissionDetailHost.scrollTop = 0;
+      requestAnimationFrame(() => {
+        layoutSubmissionsCanvas();
+        refreshSubmissionsMap();
+      });
     }
   };
 
@@ -641,7 +876,11 @@ async function setupDashboard(
       button.classList.toggle("admin-form__tab--active", selected);
       button.setAttribute("aria-selected", String(selected));
     });
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      submissionsMobileDetailOpen = false;
+    }
     renderSubmissions();
+    syncSubmissionsMobileView();
   };
 
   submissionsTabButtons.forEach((button) => {
@@ -673,6 +912,23 @@ async function setupDashboard(
     }
   });
 
+  submissionsDetailPanel.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-submission-back]")) {
+      submissionsMobileDetailOpen = false;
+      syncSubmissionsMobileView();
+      requestAnimationFrame(() => layoutSubmissionsCanvas());
+      return;
+    }
+    if (target.closest("[data-submission-approve]") && selectedSubmissionId) {
+      void handleApproveSubmission(selectedSubmissionId);
+      return;
+    }
+    if (target.closest("[data-submission-reject]") && selectedSubmissionId) {
+      void handleRejectSubmission(selectedSubmissionId);
+    }
+  });
+
   const renderSubmissions = (): void => {
     updateSubmissionBadges();
 
@@ -680,9 +936,11 @@ async function setupDashboard(
 
     if (visible.length === 0) {
       selectedSubmissionId = null;
+      submissionsMobileDetailOpen = false;
       submissionListEl.innerHTML = `<li class="admin-muted">No pending submissions.</li>`;
       if (activePanel === "submissions") {
         renderSubmissionDetail();
+        syncSubmissionsMobileView();
       }
       updateSubmissionActions();
       return;
@@ -703,6 +961,12 @@ async function setupDashboard(
               }</span>
               <span>${escapeHtml(submission.address)}</span>
               <time class="admin-muted">${formatSubmittedAt(submission.submittedAt)}</time>
+              ${
+                submission.hadHomograph ||
+                (submission.homographFields && Object.keys(submission.homographFields).length > 0)
+                  ? `<span class="admin-card-item__homograph">Homograph detected</span>`
+                  : ""
+              }
             </button>
           </li>
         `
@@ -730,39 +994,66 @@ async function setupDashboard(
       return;
     }
 
-    const field = (label: string, value: string | undefined | null, asHtml = false): string => {
-      if (!value) return "";
+    const substitutionNotices = (fieldKey?: string): string => {
+      if (!fieldKey) return "";
+      const list = submission.homographFields?.[fieldKey];
+      if (!list?.length) return "";
+      return list
+        .map(
+          (item) =>
+            `<p class="submission-detail__homograph-notice">${escapeHtml(item.correct)} was replaced by ${escapeHtml(item.homoglyph)}</p>`
+        )
+        .join("");
+    };
+
+    const field = (
+      label: string,
+      value: string | undefined | null,
+      asHtml = false,
+      fieldKey?: string
+    ): string => {
+      const notices = substitutionNotices(fieldKey);
+      if (!value && !notices) return "";
       return `
         <div class="submission-detail__field">
           <dt>${escapeHtml(label)}</dt>
-          <dd>${asHtml ? value : escapeHtml(value)}</dd>
+          <dd>${notices}${value ? (asHtml ? value : escapeHtml(value)) : ""}</dd>
         </div>`;
     };
 
-    const linkField = (label: string, url: string | undefined): string => {
-      if (!url) return "";
-      return field(
-        label,
-        `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`,
-        true
-      );
+    const linkField = (label: string, url: string | undefined, fieldKey?: string): string => {
+      const href = safeHref(url ?? "");
+      if (!href && !substitutionNotices(fieldKey)) return "";
+      const link = href
+        ? `<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(href)}</a>`
+        : "";
+      return field(label, link || undefined, true, fieldKey);
     };
 
-    const imageField = (label: string, url: string | undefined): string => {
-      if (!url) return "";
+    const imageField = (label: string, url: string | undefined, fieldKey?: string): string => {
+      const notices = substitutionNotices(fieldKey);
+      const href = safeHref(url ?? "");
+      if (!href && !notices) return "";
       return `
         <div class="submission-detail__field submission-detail__field--image">
           <dt>${escapeHtml(label)}</dt>
           <dd class="submission-detail__image-wrap">
-            <img class="submission-detail__image" src="${escapeAttr(url)}" alt="" loading="lazy" />
-            <a class="submission-detail__image-link" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>
+            ${notices}
+            ${
+              href
+                ? `<img class="submission-detail__image" src="${escapeAttr(href)}" alt="" loading="lazy" />
+            <a class="submission-detail__image-link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(href)}</a>`
+                : ""
+            }
           </dd>
         </div>`;
     };
 
     let metaFields = "";
     let storyFields = field("Impact story", submission.body);
-    let mediaFields = imageField("Image", submission.imageUrl) + linkField("Link", submission.linkUrl);
+    let mediaFields =
+      imageField("Image", submission.imageUrl, "imageUrl") +
+      linkField("Link", submission.linkUrl, "linkUrl");
 
     if (isIndividualSubmission(submission)) {
       metaFields = [
@@ -773,13 +1064,14 @@ async function setupDashboard(
         field("Profession", submission.profession.join(", ")),
         field("Current location", submission.currLocation),
         field("Hometown", submission.origLocation),
-        submission.contactEmail
-          ? field(
-              "Email",
-              `<a href="mailto:${escapeAttr(submission.contactEmail)}">${escapeHtml(submission.contactEmail)}</a>`,
-              true
-            )
-          : "",
+        field(
+          "Email",
+          submission.contactEmail
+            ? `<a href="mailto:${escapeAttr(submission.contactEmail)}">${escapeHtml(submission.contactEmail)}</a>`
+            : undefined,
+          true,
+          "contactEmail"
+        ),
         field("Newsletter opt-in", submission.optInNewsletter ? "Yes" : "No"),
         field("Consent", submission.optInModeration ? "Yes" : "No"),
       ].join("");
@@ -790,26 +1082,30 @@ async function setupDashboard(
         field("Success story", submission.story),
         field("Combined body (card)", submission.body),
       ].join("");
-      mediaFields = imageField("Photo", submission.logoUrl) + linkField("LinkedIn", submission.linkedin);
+      mediaFields =
+        imageField("Photo", submission.logoUrl, "logoUrl") +
+        linkField("LinkedIn", submission.linkedin, "linkedin");
     } else if (isOrganizationSubmission(submission)) {
       metaFields = [
         field("Type", "Organization"),
         field("Organization", submission.orgName),
         field("Submitter", submission.submitterName),
-        submission.submitterEmail
-          ? field(
-              "Submitter email",
-              `<a href="mailto:${escapeAttr(submission.submitterEmail)}">${escapeHtml(submission.submitterEmail)}</a>`,
-              true
-            )
-          : "",
-        submission.orgContactEmail
-          ? field(
-              "Org email",
-              `<a href="mailto:${escapeAttr(submission.orgContactEmail)}">${escapeHtml(submission.orgContactEmail)}</a>`,
-              true
-            )
-          : "",
+        field(
+          "Submitter email",
+          submission.submitterEmail
+            ? `<a href="mailto:${escapeAttr(submission.submitterEmail)}">${escapeHtml(submission.submitterEmail)}</a>`
+            : undefined,
+          true,
+          "submitterEmail"
+        ),
+        field(
+          "Org email",
+          submission.orgContactEmail
+            ? `<a href="mailto:${escapeAttr(submission.orgContactEmail)}">${escapeHtml(submission.orgContactEmail)}</a>`
+            : undefined,
+          true,
+          "orgContactEmail"
+        ),
         field("techNL member", submission.isTechNlMember),
         field("Industry", submission.industry.join(", ")),
         field("Head office", submission.nlLocation),
@@ -833,25 +1129,26 @@ async function setupDashboard(
         field("Combined body (card)", submission.body),
       ].join("");
       mediaFields = [
-        imageField("Logo", submission.logoUrl),
-        imageField("Media 1", submission.mediaOneUrl),
-        imageField("Media 2", submission.mediaTwoUrl),
-        linkField("Website", submission.websiteUrl),
-        linkField("LinkedIn", submission.linkedinUrl),
-        linkField("YouTube", submission.youtubeLink),
+        imageField("Logo", submission.logoUrl, "logoUrl"),
+        imageField("Media 1", submission.mediaOneUrl, "mediaOneUrl"),
+        imageField("Media 2", submission.mediaTwoUrl, "mediaTwoUrl"),
+        linkField("Website", submission.websiteUrl, "websiteUrl"),
+        linkField("LinkedIn", submission.linkedinUrl, "linkedinUrl"),
+        linkField("YouTube", submission.youtubeLink, "youtubeLink"),
       ].join("");
     } else {
       metaFields = [
         field("Type", "Story"),
         field("Company", submission.companyName || "—"),
         field("Address", submission.address),
-        submission.contactEmail
-          ? field(
-              "Contact email",
-              `<a href="mailto:${escapeAttr(submission.contactEmail)}">${escapeHtml(submission.contactEmail)}</a>`,
-              true
-            )
-          : "",
+        field(
+          "Contact email",
+          submission.contactEmail
+            ? `<a href="mailto:${escapeAttr(submission.contactEmail)}">${escapeHtml(submission.contactEmail)}</a>`
+            : undefined,
+          true,
+          "contactEmail"
+        ),
       ].join("");
     }
 
@@ -877,6 +1174,10 @@ async function setupDashboard(
 
     submissionDetailError.hidden = true;
     submissionDetailError.textContent = "";
+    if (submissionMobileError) {
+      submissionMobileError.hidden = true;
+      submissionMobileError.textContent = "";
+    }
     updateSubmissionActions();
   };
 
@@ -884,6 +1185,10 @@ async function setupDashboard(
     if (activePanel === "submissions") {
       submissionDetailError.textContent = message;
       submissionDetailError.hidden = false;
+      if (submissionMobileError) {
+        submissionMobileError.textContent = message;
+        submissionMobileError.hidden = false;
+      }
       return;
     }
     formError.textContent = message;
@@ -945,7 +1250,9 @@ async function setupDashboard(
     try {
       await rejectSubmission(id);
       submissions = submissions.filter((s) => s.id !== id);
+      submissionsMobileDetailOpen = false;
       renderSubmissions();
+      syncSubmissionsMobileView();
     } catch (error) {
       showSubmissionError(error instanceof Error ? error.message : "Rejection failed.");
     }
@@ -1105,6 +1412,7 @@ async function setupDashboard(
               : `${group.cards.length} entries`,
           mapX: group.mapX,
           mapY: group.mapY,
+          count: group.cards.length,
         })),
         selectedId: selectedPinId,
         draftPosition:

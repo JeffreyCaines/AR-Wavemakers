@@ -5,21 +5,20 @@ import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { fetchActiveCards, fetchRipplesAnchorConfig } from "../shared/api";
 import { loadMapAspectRatio } from "../shared/geo";
-import { isPinRevealed, ST_JOHNS_CARD_ID } from "../shared/ripplesReveal";
+import { isPinRevealed, isStJohnsCard } from "../shared/ripplesReveal";
 import { getRipplesSimDurationSec, RIPPLE_MASK_HEIGHT, RIPPLE_MASK_WIDTH } from "../shared/ripplesSim";
 import {
   DEFAULT_MAP_ASPECT_RATIO,
   DEFAULT_RIPPLES_ANCHOR,
-  filterCardsByType,
   getActiveRipplesPlacement,
   MAP_REFERENCE_PATH,
 } from "../shared/types";
 import type { CardType, InfoCard, RipplesAnchor } from "../shared/types";
+import { buildArChromeHtml, wireArChrome, type ArChromeController } from "./chromeUi";
 import { createRipplesEffect, type RipplesEffect } from "./ripplesEffect";
 import { playArSound, preloadArSounds, stopArSound, unlockArSounds } from "./sounds";
 import {
   applyPinVisibility,
-  AR_CARD_TYPE_TOGGLE_HTML,
   createActiveCardTracker,
   createCardDetailSheet,
   createOverlaysFromCards,
@@ -28,7 +27,6 @@ import {
   RIPPLES_REVEAL_DELAY_MS,
   updatePointing,
   updateTrackingUI,
-  wireArCardTypeToggle,
   type ActiveCardTracker,
   type CardOverlay,
 } from "./viewerShared";
@@ -56,8 +54,14 @@ function enableArPreviewPullToRefreshGuard(): void {
 function isScrollableSheetTouch(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   const sheetBody = target.closest(".ar-sheet__body");
-  if (!(sheetBody instanceof HTMLElement)) return false;
-  return sheetBody.scrollHeight > sheetBody.clientHeight;
+  if (sheetBody instanceof HTMLElement && sheetBody.scrollHeight > sheetBody.clientHeight) {
+    return true;
+  }
+  const chromeScroll = target.closest(".ar-chrome__results, .ar-chrome__filter-props");
+  if (chromeScroll instanceof HTMLElement && chromeScroll.scrollHeight > chromeScroll.clientHeight) {
+    return true;
+  }
+  return false;
 }
 
 function preventArPreviewPullToRefresh(event: TouchEvent): void {
@@ -87,7 +91,6 @@ export function initArSimViewer(root: HTMLElement): void {
           <div class="ar-app ar-app--running ar-app--sim">
             <div id="ar-container" class="ar-container"></div>
             <div class="ar-ui">
-              ${AR_CARD_TYPE_TOGGLE_HTML}
               <div class="ar-instructions">
                 <header class="ar-header ar-header--compact">
                   <p class="ar-subtitle">Desktop preview</p>
@@ -96,6 +99,7 @@ export function initArSimViewer(root: HTMLElement): void {
               </div>
               <div class="ar-crosshair" aria-hidden="true"></div>
             </div>
+            ${buildArChromeHtml()}
             <div id="ar-sheet-backdrop" class="ar-sheet-backdrop" hidden aria-hidden="true"></div>
             <aside id="ar-sheet" class="ar-sheet" hidden aria-hidden="true" role="dialog" aria-modal="true">
               <div class="ar-sheet__handle" aria-hidden="true">
@@ -134,10 +138,12 @@ export function initArSimViewer(root: HTMLElement): void {
   const detailSheet = createCardDetailSheet(sheetBackdrop, sheetEl, sheetContent, {
     onOpen: () => {
       arApp.classList.add("ar-app--sheet-open");
+      syncChromeVisibility();
     },
     onDismiss: () => {
       activeCardTracker?.resetSheetTimer();
       arApp.classList.remove("ar-app--sheet-open");
+      syncChromeVisibility();
     },
   });
 
@@ -145,6 +151,7 @@ export function initArSimViewer(root: HTMLElement): void {
   let overlays: CardOverlay[] = [];
   let allCards: InfoCard[] = [];
   let cardTypeFilter: CardType = "organization";
+  let chromeUi: ArChromeController | null = null;
   let aspectRatio = DEFAULT_MAP_ASPECT_RATIO;
   let renderer: THREE.WebGLRenderer | null = null;
   let cssRenderer: CSS2DRenderer | null = null;
@@ -171,6 +178,16 @@ export function initArSimViewer(root: HTMLElement): void {
   let dragStartYaw = 0;
   let dragStartPitch = 0;
 
+  function visibleCards(): InfoCard[] {
+    return chromeUi ? chromeUi.filterCards(allCards) : allCards;
+  }
+
+  function syncChromeVisibility(): void {
+    const visible = tracking && !detailSheet.isOpen();
+    chromeUi?.setVisible(visible);
+    arApp.classList.toggle("ar-app--chrome", visible);
+  }
+
   const onPopState = (): void => {
     if (detailSheet.isOpen()) {
       detailSheet.dismissFromHistory();
@@ -186,7 +203,7 @@ export function initArSimViewer(root: HTMLElement): void {
 
   function cardIsRevealedAt(card: InfoCard, elapsedSec: number | null): boolean {
     if (pinsFullyRevealed) return true;
-    if (!tracking) return card.id === ST_JOHNS_CARD_ID;
+    if (!tracking) return isStJohnsCard(card);
     const origin = getActiveRipplesPlacement(ripplesAnchor);
     const playSec = getRipplesSimDurationSec();
     return isPinRevealed(
@@ -236,7 +253,7 @@ export function initArSimViewer(root: HTMLElement): void {
       activeCardTracker?.resetSheetTimer();
     }
     removeOverlaysFromParent(overlays, anchorGroup);
-    overlays = createOverlaysFromCards(filterCardsByType(allCards, cardTypeFilter), aspectRatio);
+    overlays = createOverlaysFromCards(visibleCards(), aspectRatio);
     overlays.forEach(({ markerObject, panelObject }) => {
       anchorGroup!.add(markerObject);
       anchorGroup!.add(panelObject);
@@ -353,6 +370,7 @@ export function initArSimViewer(root: HTMLElement): void {
 
   const onPointerDown = (event: PointerEvent): void => {
     if (detailSheet.isOpen()) return;
+    if (chromeUi?.isPanelOpen()) return;
     dragPointerId = event.pointerId;
     dragStartX = event.clientX;
     dragStartY = event.clientY;
@@ -388,10 +406,22 @@ export function initArSimViewer(root: HTMLElement): void {
 
   window.addEventListener("resize", onResize);
 
-  wireArCardTypeToggle(root, (type) => {
-    if (cardTypeFilter === type) return;
-    cardTypeFilter = type;
-    rebuildOverlays();
+  chromeUi = wireArChrome(root, {
+    getCards: () => allCards,
+    onCardTypeChange: (type) => {
+      if (cardTypeFilter === type) return;
+      cardTypeFilter = type;
+      rebuildOverlays();
+    },
+    onFiltersChange: () => {
+      rebuildOverlays();
+    },
+    onSelectCard: (card) => {
+      detailSheet.show(card);
+    },
+    onHome: () => {
+      window.location.assign("/");
+    },
   });
 
   preloadArSounds();
@@ -442,6 +472,7 @@ export function initArSimViewer(root: HTMLElement): void {
     mapMesh.add(anchorGroup);
 
     const origin = getActiveRipplesPlacement(ripplesAnchor);
+    // Wall-map preview keeps the photo-mask shader. /admin uses a separate 3D overlay.
     ripplesEffect = await createRipplesEffect(
       aspectRatio,
       ripplesAnchor.activeVariant,
@@ -450,7 +481,7 @@ export function initArSimViewer(root: HTMLElement): void {
     );
     anchorGroup.add(ripplesEffect.mesh);
 
-    overlays = createOverlaysFromCards(filterCardsByType(allCards, cardTypeFilter), aspectRatio);
+    overlays = createOverlaysFromCards(visibleCards(), aspectRatio);
     overlays.forEach(({ markerObject, panelObject }) => {
       anchorGroup!.add(markerObject);
       anchorGroup!.add(panelObject);
@@ -462,6 +493,7 @@ export function initArSimViewer(root: HTMLElement): void {
     pinsFullyRevealed = false;
     allowPinTargeting = false;
     syncPinVisibility();
+    syncChromeVisibility();
     scheduleRipplesReveal();
 
     updateCameraView();

@@ -1,12 +1,21 @@
 import "./styles.css";
-import "./formStyles.css";
 import techNlLogoUrl from "../images/techNL-logo.png";
-import pathIconUrl from "../images/pathIcon.png";
-import eighthWallLogoUrl from "../images/8thWall-Logo.png";
-import waveAnimDesktopUrl from "../images/WaveAnimation_Desktop1080p.gif";
-import waveAnimMobileUrl from "../images/WaveAnimation.gif";
 import exitIconUrl from "../images/exitIcon.png";
-import { openGetNoticedForm } from "./getNoticedForm";
+
+export type CopyLandingOptions = {
+  onLaunchMap?: () => void;
+  onSelectOnSite?: () => void;
+  onSelectAtHome?: () => void;
+  onModeModalOpen?: () => void;
+  skipDisclaimer?: boolean;
+};
+
+export type CopyLandingController = {
+  openModeModal: (notifyHistory: boolean) => void;
+  closeModeModal: () => void;
+};
+
+let disclaimerShown = false;
 
 function isMobileUa(): boolean {
   const ua = navigator.userAgent;
@@ -17,7 +26,20 @@ function isMobileUa(): boolean {
   );
 }
 
+async function ensureFormStyles(): Promise<void> {
+  await import("./formStyles.css");
+}
+
+async function openStoryForm(root: HTMLElement, kind: "individual" | "organization"): Promise<void> {
+  await ensureFormStyles();
+  const { openGetNoticedForm } = await import("./getNoticedForm");
+  openGetNoticedForm(root, kind);
+}
+
 function showDisclaimer(root: HTMLElement): void {
+  if (disclaimerShown) return;
+  disclaimerShown = true;
+
   const modal = document.createElement("div");
   modal.className = "copy-disclaimer";
   modal.setAttribute("role", "dialog");
@@ -31,8 +53,8 @@ function showDisclaimer(root: HTMLElement): void {
       <div class="copy-disclaimer__content">
         <div class="copy-disclaimer__header" id="copy-disclaimer-title">Disclaimer</div>
         <p class="copy-disclaimer__text">
-          This is not a production project. 
-          <br>This page is copied from work previously done at
+          This is not a production project.
+          <br>Much of the UI is lifted from
           <a href="https://nlwavemakers.ca" target="_blank" rel="noopener noreferrer">nlwavemakers.ca</a>.
         </p>
       </div>
@@ -50,92 +72,66 @@ function showDisclaimer(root: HTMLElement): void {
   root.appendChild(modal);
 }
 
-function showModeSelect(root: HTMLElement): void {
-  const modal = document.createElement("div");
-  modal.className = "copy-modal copy-modal--mode";
-  modal.setAttribute("role", "dialog");
-  modal.setAttribute("aria-modal", "true");
-  modal.setAttribute("aria-labelledby", "copy-mode-title");
-  modal.innerHTML = `
-    <div class="copy-modal__panel">
-      <div class="copy-modal__content">
-        <div class="copy-modal__header" id="copy-mode-title">Select a Mode</div>
-        <div class="copy-modal__text">
-          To launch the experience, choose your mode based on your location: select "On Site" if you're in the Co. Innovation Centre, or "At Home" if you are in another location.
-        </div>
-      </div>
-      <div class="copy-modal__share-btns">
-        <button type="button" class="copy-modal__share-btn" data-mode="on-site">ON SITE</button>
-        <button type="button" class="copy-modal__share-btn" data-mode="at-home">AT HOME</button>
-      </div>
-    </div>
-  `;
-
-  modal.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const mode = btn.dataset.mode;
-      if (mode === "on-site") {
-        window.location.assign("/ar");
-        return;
-      }
-      if (mode === "at-home") {
-        window.location.assign("/8th-ar");
-      }
-    });
-  });
-
-  root.appendChild(modal);
-}
-
 function showShareStoryChooser(root: HTMLElement): void {
-  const modal = document.createElement("div");
-  modal.className = "copy-modal copy-modal--share";
-  modal.setAttribute("role", "dialog");
-  modal.setAttribute("aria-modal", "true");
-  modal.setAttribute("aria-labelledby", "copy-share-title");
-  modal.innerHTML = `
-    <div class="copy-modal__panel">
-      <button type="button" class="copy-modal__close" aria-label="Close">
-        <img src="${exitIconUrl}" alt="" width="24" height="24" decoding="async" />
-      </button>
-      <div class="copy-modal__content">
-        <div class="copy-modal__header" id="copy-share-title">Join Newfoundland and Labrador’s (NL) Global Story</div>
-        <div class="copy-modal__text">
-          This experience is designed to highlight the global impact of the NL tech community’s  innovators, entrepreneurs, and organizations, who are driving global impact with cutting- edge solutions across industries and borders.
+  void (async () => {
+    await ensureFormStyles();
+    const modal = document.createElement("div");
+    modal.className = "copy-modal copy-modal--share";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-labelledby", "copy-share-title");
+    modal.innerHTML = `
+      <div class="copy-modal__panel">
+        <button type="button" class="copy-modal__close" aria-label="Close">
+          <img src="${exitIconUrl}" alt="" width="24" height="24" decoding="async" />
+        </button>
+        <div class="copy-modal__content">
+          <div class="copy-modal__header" id="copy-share-title">Join Newfoundland and Labrador’s (NL) Global Story</div>
+          <div class="copy-modal__text">
+            This experience is designed to highlight the global impact of the NL tech community’s  innovators, entrepreneurs, and organizations, who are driving global impact with cutting- edge solutions across industries and borders.
+          </div>
+          <div class="copy-modal__text">
+            To add a pin to the map, submit either a personal profile or one for your organization. Share  your story to join the Wavemakers Experience.
+          </div>
         </div>
-        <div class="copy-modal__text">
-          To add a pin to the map, submit either a personal profile or one for your organization. Share  your story to join the Wavemakers Experience.
+        <div class="copy-modal__share-btns">
+          <button type="button" class="copy-modal__share-btn" data-open="individual">INDIVIDUAL</button>
+          <button type="button" class="copy-modal__share-btn" data-open="organization">ORGANIZATION</button>
         </div>
       </div>
-      <div class="copy-modal__share-btns">
-        <button type="button" class="copy-modal__share-btn" data-open="individual">INDIVIDUAL</button>
-        <button type="button" class="copy-modal__share-btn" data-open="organization">ORGANIZATION</button>
-      </div>
-    </div>
-  `;
+    `;
 
-  const dismiss = (): void => modal.remove();
-  modal.querySelector(".copy-modal__close")?.addEventListener("click", dismiss);
-  modal.addEventListener("click", (event) => {
-    if (event.target === modal) dismiss();
-  });
-  modal.querySelectorAll<HTMLButtonElement>("[data-open]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const kind = btn.dataset.open;
-      dismiss();
-      if (kind === "individual" || kind === "organization") {
-        openGetNoticedForm(root, kind);
-      }
+    const dismiss = (): void => modal.remove();
+    modal.querySelector(".copy-modal__close")?.addEventListener("click", dismiss);
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) dismiss();
     });
-  });
+    modal.querySelectorAll<HTMLButtonElement>("[data-open]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const kind = btn.dataset.open;
+        dismiss();
+        if (kind === "individual" || kind === "organization") {
+          void openStoryForm(root, kind);
+        }
+      });
+    });
 
-  root.appendChild(modal);
+    root.appendChild(modal);
+  })();
 }
 
-function renderDesktopLanding(root: HTMLElement): void {
+async function renderDesktopLanding(
+  root: HTMLElement,
+  options: CopyLandingOptions
+): Promise<void> {
+  const [{ default: waveAnimDesktopUrl }, { default: pathIconUrl }] = await Promise.all([
+    import("../images/WaveAnimation_Desktop1080p.gif"),
+    import("../images/pathIcon.png"),
+  ]);
+
   root.innerHTML = `
     <div class="copy-landing">
-      <div class="copy-landing__anim" aria-hidden="true" hidden>
+      <div class="copy-landing__anim" aria-hidden="true">
         <img src="${waveAnimDesktopUrl}" alt="" decoding="async" />
       </div>
       <div class="copy-landing__container">
@@ -147,10 +143,10 @@ function renderDesktopLanding(root: HTMLElement): void {
         <button type="button" class="copy-landing__btn" data-open="individual">Individual</button>
         <button type="button" class="copy-landing__btn" data-open="organization">Organization</button>
         <div class="copy-landing__links">
-          <a class="copy-landing__launch" href="/ar">
-            Launch Map on Your Phone
+          <button type="button" class="copy-landing__launch" data-launch>
+            Launch Map in Your Browser
             <img src="${pathIconUrl}" alt="" width="27" height="48" decoding="async" />
-          </a>
+          </button>
           <p class="copy-landing__question">
             Have question? Contact us at <a href="mailto:info@technl.ca">info@technl.ca</a>
           </p>
@@ -163,13 +159,21 @@ function renderDesktopLanding(root: HTMLElement): void {
     btn.addEventListener("click", () => {
       const kind = btn.dataset.open;
       if (kind === "individual" || kind === "organization") {
-        openGetNoticedForm(root, kind);
+        void openStoryForm(root, kind);
       }
     });
   });
+  root.querySelector("[data-launch]")?.addEventListener("click", () => {
+    options.onLaunchMap?.();
+  });
 }
 
-function renderMobileLanding(root: HTMLElement): void {
+async function renderMobileLanding(root: HTMLElement): Promise<void> {
+  const [{ default: waveAnimMobileUrl }, { default: eighthWallLogoUrl }] = await Promise.all([
+    import("../images/WaveAnimation.gif"),
+    import("../images/8thWall-Logo.png"),
+  ]);
+
   root.innerHTML = `
     <div class="copy-landing copy-landing--mobile">
       <img class="copy-landing__bg" src="${waveAnimMobileUrl}" alt="" decoding="async" aria-hidden="true" />
@@ -200,19 +204,72 @@ function renderMobileLanding(root: HTMLElement): void {
   root.querySelector("[data-share]")?.addEventListener("click", () => {
     showShareStoryChooser(root);
   });
-  root.querySelector("[data-start]")?.addEventListener("click", () => {
-    showModeSelect(root);
-  });
 }
 
-export function initCopyLanding(root: HTMLElement): void {
+export async function initCopyLanding(
+  root: HTMLElement,
+  options: CopyLandingOptions = {}
+): Promise<CopyLandingController> {
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#1c294b");
   document.title = "Wavemakers";
 
+  let modeModal: HTMLElement | null = null;
+
+  const closeModeModal = (): void => {
+    modeModal?.remove();
+    modeModal = null;
+  };
+
+  const showModeSelect = (notifyHistory: boolean): void => {
+    if (modeModal) return;
+    const modal = document.createElement("div");
+    modal.className = "copy-modal copy-modal--mode";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-labelledby", "copy-mode-title");
+    modal.innerHTML = `
+        <div class="copy-modal__panel">
+          <div class="copy-modal__content">
+            <div class="copy-modal__header" id="copy-mode-title">Select a Mode</div>
+            <div class="copy-modal__text">
+              To launch the experience, choose your mode based on your location: select "On Site" if you're in the Co. Innovation Centre, or "At Home" if you are in another location.
+            </div>
+          </div>
+          <div class="copy-modal__share-btns">
+            <button type="button" class="copy-modal__share-btn" data-mode="on-site">ON SITE</button>
+            <button type="button" class="copy-modal__share-btn" data-mode="at-home">AT HOME</button>
+          </div>
+        </div>
+      `;
+
+    modal.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mode = btn.dataset.mode;
+        closeModeModal();
+        if (mode === "on-site") {
+          options.onSelectOnSite?.();
+          return;
+        }
+        if (mode === "at-home") {
+          options.onSelectAtHome?.();
+        }
+      });
+    });
+
+    modeModal = modal;
+    root.appendChild(modal);
+    if (notifyHistory) {
+      options.onModeModalOpen?.();
+    }
+  };
+
   if (isMobileUa()) {
-    renderMobileLanding(root);
+    await renderMobileLanding(root);
+    root.querySelector("[data-start]")?.addEventListener("click", () => {
+      showModeSelect(true);
+    });
   } else {
-    renderDesktopLanding(root);
+    await renderDesktopLanding(root, options);
   }
 
   root.querySelectorAll<HTMLElement>("[data-technl]").forEach((logo) => {
@@ -221,5 +278,12 @@ export function initCopyLanding(root: HTMLElement): void {
     });
   });
 
-  showDisclaimer(root);
+  if (!options.skipDisclaimer) {
+    showDisclaimer(root);
+  }
+
+  return {
+    openModeModal: (notifyHistory) => showModeSelect(notifyHistory),
+    closeModeModal,
+  };
 }

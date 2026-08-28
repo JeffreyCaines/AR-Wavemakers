@@ -1,3 +1,4 @@
+import type { AdminLoginSuccess, AdminPublicAccount, AdminSessionUser } from "./adminAuth";
 import type { CalibrationPoint, GeocodeResult, InfoCard, RipplesAnchor, StorySubmission, StorySubmissionInput } from "./types";
 import { normalizeRipplesAnchor } from "./ripplesAnchor";
 
@@ -116,11 +117,108 @@ export async function geocodeAddress(query: string): Promise<GeocodeResult> {
   return parseJson<GeocodeResult>(response);
 }
 
-export async function verifyAdminPassword(password: string): Promise<{ ok: boolean; status: number }> {
-  const response = await fetch("/api/cards/all", {
-    headers: { Authorization: `Bearer ${password}` },
+export type AdminLoginResult =
+  | { ok: true } & AdminLoginSuccess
+  | { ok: false; status: number; error: string };
+
+function readErrorMessage(text: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(text) as { error?: string };
+    if (typeof parsed.error === "string" && parsed.error) return parsed.error;
+  } catch {
+    // Keep fallback.
+  }
+  return text || fallback;
+}
+
+export async function loginAdmin(email: string, password: string): Promise<AdminLoginResult> {
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
   });
-  return { ok: response.ok, status: response.status };
+  const text = await response.text();
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorMessage(text, `Sign-in failed (HTTP ${response.status}).`),
+    };
+  }
+  const data = JSON.parse(text) as AdminLoginSuccess;
+  setAdminToken(data.token);
+  return { ok: true, ...data };
+}
+
+export async function logoutAdmin(): Promise<void> {
+  try {
+    if (getAdminToken()) {
+      await fetch("/api/auth/logout", { method: "POST", headers: authHeaders() });
+    }
+  } finally {
+    clearAdminToken();
+  }
+}
+
+export async function changeAdminPassword(
+  newPassword: string,
+  currentPassword?: string
+): Promise<AdminLoginResult> {
+  const response = await fetch("/api/auth/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ newPassword, currentPassword }),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorMessage(text, `Password update failed (HTTP ${response.status}).`),
+    };
+  }
+  const data = JSON.parse(text) as AdminLoginSuccess;
+  setAdminToken(data.token);
+  return { ok: true, ...data };
+}
+
+export async function fetchAdminMe(): Promise<AdminSessionUser> {
+  const response = await fetch("/api/auth/me", { headers: authHeaders() });
+  return parseJson<AdminSessionUser>(response);
+}
+
+export async function fetchAdminAccounts(): Promise<AdminPublicAccount[]> {
+  const response = await fetch("/api/admins", { headers: authHeaders() });
+  return parseJson<AdminPublicAccount[]>(response);
+}
+
+export async function createAdminAccount(email: string, password: string): Promise<AdminPublicAccount> {
+  const response = await fetch("/api/admins", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ email, password }),
+  });
+  return parseJson<AdminPublicAccount>(response);
+}
+
+export async function deleteAdminAccount(id: string): Promise<void> {
+  const response = await fetch(`/api/admins/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(readErrorMessage(text, response.statusText));
+  }
+}
+
+export async function resetAdminPassword(id: string, password: string): Promise<AdminPublicAccount> {
+  const response = await fetch(`/api/admins/${id}/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ password }),
+  });
+  return parseJson<AdminPublicAccount>(response);
 }
 
 export async function submitStory(input: StorySubmissionInput): Promise<{ ok: true; id: string }> {

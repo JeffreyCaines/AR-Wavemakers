@@ -32,15 +32,35 @@ function pulseLerp(start: number, end: number, value: number): number {
 export type MapPulseController = {
   /** St. John's world-space pulse origin (live uses 47.560533, -52.754796). */
   setCenterWorld: (center: THREE.Vector3) => void;
+  getCenterWorld: () => THREE.Vector3;
   /** Max pulse travel distance in world units (live `b.current`, default 1). */
   setPulseScale: (scale: number) => void;
-  startPulse: (onMid?: () => void, onComplete?: () => void) => void;
+  getPulseDistance: () => number;
+  getPulseRange: () => number;
+  getPulseCount: () => number;
+  isRunning: () => boolean;
+  startPulse: (onMid?: () => void, onComplete?: () => void, silent?: boolean) => void;
   resetPulse: () => void;
   dispose: () => void;
   water: MapPulseWaterMaterial;
   land: MapPulseLandMaterial;
   nfld: MapPulseLandMaterial;
 };
+
+/**
+ * Pin opacity as the later 3-ring burst passes `distance` from center.
+ * The first second is a single ring; pins stay hidden until pulseCount hits 3.
+ */
+export function pulseRevealAlpha(
+  distance: number,
+  pulseDistance: number,
+  pulseRange: number,
+  pulseCount = 1,
+): number {
+  if (pulseCount < 3) return 0;
+  const range = Math.max(pulseRange, 1e-4);
+  return 1 - Math.min(1, Math.max(0, (distance - pulseDistance) / range));
+}
 
 /**
  * Apply live pulse materials onto a seated TechNL map root and drive StartPulse.
@@ -100,6 +120,7 @@ export async function createMapPulseController(
   let pulseScale = 1;
   let rafId: number | null = null;
   let startedAt = 0;
+  let clockArmed = false;
   let onMidCb: (() => void) | null = null;
   let onCompleteCb: (() => void) | null = null;
 
@@ -117,11 +138,18 @@ export async function createMapPulseController(
     water.pulseCount = 0;
     water.pulseFill = 0.2;
     water.pulsePower = 0;
+    clockArmed = false;
+    startedAt = 0;
     onMidCb = null;
     onCompleteCb = null;
   };
 
   const tick = (): void => {
+    // Arm on first tick so shader compile / first paint cannot skip the origin.
+    if (!clockArmed) {
+      clockArmed = true;
+      startedAt = Date.now();
+    }
     const e = (Date.now() - startedAt) * 0.001;
     if (e < 1) {
       water.pulseRange = (1 - Math.cos(0.5 + 0.5 * pulseLerp(0, 1, e))) * 0.1 * pulseScale;
@@ -157,12 +185,11 @@ export async function createMapPulseController(
     }
   };
 
-  const startPulse = (onMid?: () => void, onComplete?: () => void): void => {
+  const startPulse = (onMid?: () => void, onComplete?: () => void, silent = false): void => {
     resetPulse();
     onMidCb = onMid ?? null;
     onCompleteCb = onComplete ?? null;
-    playArSound("pulse");
-    startedAt = Date.now();
+    if (!silent) playArSound("pulse");
     rafId = window.requestAnimationFrame(tick);
   };
 
@@ -170,8 +197,23 @@ export async function createMapPulseController(
     setCenterWorld(center) {
       water.center = center;
     },
+    getCenterWorld() {
+      return water.center;
+    },
     setPulseScale(scale) {
       pulseScale = Math.max(0.01, scale);
+    },
+    getPulseDistance() {
+      return water.pulseDistance;
+    },
+    getPulseRange() {
+      return water.pulseRange;
+    },
+    getPulseCount() {
+      return water.pulseCount;
+    },
+    isRunning() {
+      return rafId !== null;
     },
     startPulse,
     resetPulse,

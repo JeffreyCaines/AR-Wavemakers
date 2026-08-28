@@ -6,11 +6,18 @@ import type {
   StorySubmissionInput,
 } from "./types";
 import {
-  sanitizeEmail,
-  sanitizeHttpUrl,
+  aliasFieldSubstitutions,
+  emptyHomographFlags,
+  homographFlagsDetected,
+  mergeIncomingHomographFields,
+  type HomographFlags,
+} from "./homoglyphs";
+import {
   sanitizeMultilineText,
   sanitizePlainText,
   sanitizeStorySubmissionInput,
+  takeSanitizedEmail,
+  takeSanitizedHttpUrl,
   type SanitizeStoryInputResult,
 } from "./sanitizeStorySubmission";
 
@@ -39,14 +46,30 @@ function sanitizeStringList(value: unknown, maxItems: number, maxLen: number): s
   return out;
 }
 
-function sanitizeUploadUrl(value: unknown): string | undefined {
+function sanitizeUploadUrl(
+  value: unknown,
+  flags: HomographFlags,
+  field: string
+): string | undefined {
   const raw = sanitizePlainText(value, LIMITS.url);
   if (!raw) return undefined;
   if (raw.startsWith("/api/uploads/")) {
     if (!/^\/api\/uploads\/[a-zA-Z0-9_-]+$/.test(raw)) return undefined;
     return raw;
   }
-  return sanitizeHttpUrl(raw, LIMITS.url);
+  return takeSanitizedHttpUrl(raw, LIMITS.url, flags, field);
+}
+
+function attachHomographMeta<T extends IndividualStorySubmissionInput | OrganizationStorySubmissionInput>(
+  value: T,
+  flags: HomographFlags
+): T {
+  const hadHomograph = homographFlagsDetected(flags);
+  return {
+    ...value,
+    hadHomograph,
+    ...(hadHomograph ? { homographFields: flags.fields } : {}),
+  };
 }
 
 function buildIndividualBody(fields: {
@@ -97,6 +120,8 @@ export function sanitizeIndividualSubmissionInput(input: unknown): SanitizeStory
   }
   const raw = input as Record<string, unknown>;
 
+  const flags = emptyHomographFlags();
+  mergeIncomingHomographFields(flags, raw.homographFields);
   const firstName = sanitizePlainText(raw.firstName, LIMITS.name);
   const lastName = sanitizePlainText(raw.lastName, LIMITS.name);
   const isTechNlMember = sanitizePlainText(raw.isTechNlMember, LIMITS.member);
@@ -104,13 +129,13 @@ export function sanitizeIndividualSubmissionInput(input: unknown): SanitizeStory
   const profession = sanitizeStringList(raw.profession, LIMITS.maxMulti, LIMITS.option);
   const currLocation = sanitizePlainText(raw.currLocation, LIMITS.location);
   const origLocation = sanitizePlainText(raw.origLocation, LIMITS.location);
-  const linkedin = sanitizeHttpUrl(raw.linkedin, LIMITS.url);
-  const email = sanitizeEmail(raw.email);
+  const linkedin = takeSanitizedHttpUrl(raw.linkedin, LIMITS.url, flags, "linkedin");
+  const email = takeSanitizedEmail(raw.email, flags, "email");
   const nlDescription = sanitizeMultilineText(raw.nlDescription, LIMITS.shortAnswer) || undefined;
   const whyDescription = sanitizeMultilineText(raw.whyDescription, LIMITS.shortAnswer) || undefined;
   const dreamJob = sanitizeMultilineText(raw.dreamJob, LIMITS.shortAnswer) || undefined;
   const story = sanitizeMultilineText(raw.story, LIMITS.longStory) || undefined;
-  const logoUrl = sanitizeUploadUrl(raw.logoUrl);
+  const logoUrl = sanitizeUploadUrl(raw.logoUrl, flags, "logoUrl");
   const optInModeration = raw.optInModeration === true;
   const optInNewsletter = raw.optInNewsletter === true;
 
@@ -124,32 +149,39 @@ export function sanitizeIndividualSubmissionInput(input: unknown): SanitizeStory
   if (!logoUrl) return { ok: false, error: "A photo upload is required." };
   if (!optInModeration) return { ok: false, error: "Consent to share content is required." };
 
-  const value: IndividualStorySubmissionInput = {
-    submissionType: "individual",
-    firstName,
-    lastName,
-    isTechNlMember,
-    pronouns,
-    profession,
-    currLocation,
-    origLocation,
-    linkedin,
-    email,
-    nlDescription,
-    whyDescription,
-    dreamJob,
-    story,
-    optInModeration,
-    optInNewsletter,
-    logoUrl,
-    title: `${firstName} ${lastName}`,
-    companyName: "",
-    body: buildIndividualBody({ nlDescription, whyDescription, dreamJob, story }),
-    address: currLocation,
-    contactEmail: email,
-    imageUrl: logoUrl,
-    linkUrl: linkedin,
-  };
+  aliasFieldSubstitutions(flags, "email", "contactEmail");
+  aliasFieldSubstitutions(flags, "linkedin", "linkUrl");
+  aliasFieldSubstitutions(flags, "logoUrl", "imageUrl");
+
+  const value: IndividualStorySubmissionInput = attachHomographMeta(
+    {
+      submissionType: "individual",
+      firstName,
+      lastName,
+      isTechNlMember,
+      pronouns,
+      profession,
+      currLocation,
+      origLocation,
+      linkedin,
+      email,
+      nlDescription,
+      whyDescription,
+      dreamJob,
+      story,
+      optInModeration,
+      optInNewsletter,
+      logoUrl,
+      title: `${firstName} ${lastName}`,
+      companyName: "",
+      body: buildIndividualBody({ nlDescription, whyDescription, dreamJob, story }),
+      address: currLocation,
+      contactEmail: email,
+      imageUrl: logoUrl,
+      linkUrl: linkedin,
+    },
+    flags
+  );
 
   return { ok: true, value };
 }
@@ -160,16 +192,18 @@ export function sanitizeOrganizationSubmissionInput(input: unknown): SanitizeSto
   }
   const raw = input as Record<string, unknown>;
 
+  const flags = emptyHomographFlags();
+  mergeIncomingHomographFields(flags, raw.homographFields);
   const submitterName = sanitizePlainText(raw.submitterName, LIMITS.name);
-  const submitterEmail = sanitizeEmail(raw.submitterEmail);
+  const submitterEmail = takeSanitizedEmail(raw.submitterEmail, flags, "submitterEmail");
   const orgName = sanitizePlainText(raw.orgName, LIMITS.name);
   const isTechNlMember = sanitizePlainText(raw.isTechNlMember, LIMITS.member);
   const industry = sanitizeStringList(raw.industry, LIMITS.maxMulti, LIMITS.option);
   const nlLocation = sanitizePlainText(raw.nlLocation, LIMITS.location);
   const locations = sanitizeStringList(raw.locations, LIMITS.maxLocations, LIMITS.location);
-  const websiteUrl = sanitizeHttpUrl(raw.websiteUrl, LIMITS.url);
-  const linkedinUrl = sanitizeHttpUrl(raw.linkedinUrl, LIMITS.url);
-  const orgContactEmail = sanitizeEmail(raw.orgContactEmail);
+  const websiteUrl = takeSanitizedHttpUrl(raw.websiteUrl, LIMITS.url, flags, "websiteUrl");
+  const linkedinUrl = takeSanitizedHttpUrl(raw.linkedinUrl, LIMITS.url, flags, "linkedinUrl");
+  const orgContactEmail = takeSanitizedEmail(raw.orgContactEmail, flags, "orgContactEmail");
   const yearRaw = raw.yearEstablished;
   let yearEstablished: number | undefined;
   if (yearRaw !== undefined && yearRaw !== null && yearRaw !== "") {
@@ -181,14 +215,14 @@ export function sanitizeOrganizationSubmissionInput(input: unknown): SanitizeSto
   }
   const mainDescription = sanitizeMultilineText(raw.mainDescription, LIMITS.description) || undefined;
   const companyBio = sanitizeMultilineText(raw.companyBio, LIMITS.description) || undefined;
-  const mediaOneUrl = sanitizeUploadUrl(raw.mediaOneUrl);
-  const mediaTwoUrl = sanitizeUploadUrl(raw.mediaTwoUrl);
-  const youtubeLink = sanitizeHttpUrl(raw.youtubeLink, LIMITS.url);
+  const mediaOneUrl = sanitizeUploadUrl(raw.mediaOneUrl, flags, "mediaOneUrl");
+  const mediaTwoUrl = sanitizeUploadUrl(raw.mediaTwoUrl, flags, "mediaTwoUrl");
+  const youtubeLink = takeSanitizedHttpUrl(raw.youtubeLink, LIMITS.url, flags, "youtubeLink");
   const exportLocations = sanitizeStringList(raw.exportLocations, LIMITS.maxLocations, LIMITS.location);
   const stakeholderDescription =
     sanitizeMultilineText(raw.stakeholderDescription, LIMITS.shortAnswer) || undefined;
   const storyDescription = sanitizeMultilineText(raw.storyDescription, LIMITS.shortAnswer) || undefined;
-  const logoUrl = sanitizeUploadUrl(raw.logoUrl);
+  const logoUrl = sanitizeUploadUrl(raw.logoUrl, flags, "logoUrl");
   const optInModeration = raw.optInModeration === true;
   const optInNewsletter = raw.optInNewsletter === true;
 
@@ -204,43 +238,50 @@ export function sanitizeOrganizationSubmissionInput(input: unknown): SanitizeSto
   if (!logoUrl) return { ok: false, error: "A logo upload is required." };
   if (!optInModeration) return { ok: false, error: "Consent to share content is required." };
 
-  const value: OrganizationStorySubmissionInput = {
-    submissionType: "organization",
-    submitterName,
-    submitterEmail,
-    orgName,
-    isTechNlMember,
-    industry,
-    nlLocation,
-    locations,
-    websiteUrl,
-    linkedinUrl,
-    orgContactEmail,
-    yearEstablished,
-    mainDescription,
-    companyBio,
-    mediaOneUrl,
-    mediaTwoUrl,
-    youtubeLink,
-    exportLocations: exportLocations.length ? exportLocations : undefined,
-    stakeholderDescription,
-    storyDescription,
-    optInModeration,
-    optInNewsletter,
-    logoUrl,
-    title: orgName,
-    companyName: orgName,
-    body: buildOrganizationBody({
+  aliasFieldSubstitutions(flags, "submitterEmail", "contactEmail");
+  aliasFieldSubstitutions(flags, "websiteUrl", "linkUrl");
+  aliasFieldSubstitutions(flags, "logoUrl", "imageUrl");
+
+  const value: OrganizationStorySubmissionInput = attachHomographMeta(
+    {
+      submissionType: "organization",
+      submitterName,
+      submitterEmail,
+      orgName,
+      isTechNlMember,
+      industry,
+      nlLocation,
+      locations,
+      websiteUrl,
+      linkedinUrl,
+      orgContactEmail,
+      yearEstablished,
       mainDescription,
       companyBio,
+      mediaOneUrl,
+      mediaTwoUrl,
+      youtubeLink,
+      exportLocations: exportLocations.length ? exportLocations : undefined,
       stakeholderDescription,
       storyDescription,
-    }),
-    address: nlLocation,
-    contactEmail: submitterEmail,
-    imageUrl: logoUrl,
-    linkUrl: websiteUrl,
-  };
+      optInModeration,
+      optInNewsletter,
+      logoUrl,
+      title: orgName,
+      companyName: orgName,
+      body: buildOrganizationBody({
+        mainDescription,
+        companyBio,
+        stakeholderDescription,
+        storyDescription,
+      }),
+      address: nlLocation,
+      contactEmail: submitterEmail,
+      imageUrl: logoUrl,
+      linkUrl: websiteUrl,
+    },
+    flags
+  );
 
   return { ok: true, value };
 }

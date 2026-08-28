@@ -424,6 +424,18 @@
   background-color: rgba(238, 0, 0, 0.15) !important;
 }
 
+.copy-form__check.copy-form__error-border {
+  outline: 2px solid #ee0000;
+  outline-offset: 4px;
+  background-color: rgba(238, 0, 0, 0.08);
+  border: none !important;
+}
+
+.copy-form__photo-preview.copy-form__error-border {
+  outline: 2px solid #ee0000;
+  outline-offset: 2px;
+}
+
 .copy-form__dd {
   position: relative;
   width: 100%;

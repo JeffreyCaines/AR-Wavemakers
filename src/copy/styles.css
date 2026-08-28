@@ -148,6 +148,9 @@ body:has(.copy-landing) {
   cursor: pointer;
   pointer-events: all;
   color: #fff;
+  background: none;
+  border: 0;
+  padding: 0;
 }
 
 .copy-landing__launch img {
@@ -377,23 +380,37 @@ body:has(.copy-landing) {
   pointer-events: all !important;
 }
 
-/* Mode select — PopUp solidBackground (ModeSelect) */
+/* Mode select — PopUp solidBackground (ModeSelect). */
 .copy-modal--mode {
   position: fixed;
   inset: 0;
   z-index: 10000;
   display: flex;
+  flex-direction: column;
   justify-content: center;
-  align-items: flex-start;
+  align-items: center;
   min-width: 100svw;
   min-height: 100svh;
   pointer-events: all !important;
   background-image: linear-gradient(#1f2029, #1c294b, #37204e);
+  box-sizing: border-box;
+  padding: 0;
 }
 
 .copy-modal--mode .copy-modal__panel {
-  margin-top: 9.352svh;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  width: min(90vw, 480px);
+  min-height: 20svh;
   max-height: 80svh;
+  background-color: #e7d7e1;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: none;
+  pointer-events: all;
+  z-index: 11000;
 }
 
 .copy-modal--mode .copy-modal__content {
@@ -401,16 +418,28 @@ body:has(.copy-landing) {
   max-width: 90%;
   min-height: auto;
   overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .copy-modal--mode .copy-modal__header {
+  margin: 0;
+  color: #9b2272;
+  font-family: NeueHaas-Bold;
   font-size: max(18px, min(24px, 4.615vw));
+  font-style: normal;
+  font-weight: 750;
+  text-align: left;
 }
 
 .copy-modal--mode .copy-modal__text {
   margin: 2svh 0 0;
+  color: #202126;
+  font-family: NeueHaas-Roman;
   font-size: max(13px, min(20px, 3.33vw));
+  font-style: normal;
+  font-weight: 450;
   line-height: max(18px, min(24px, 4.615vw));
+  text-align: left;
   white-space: normal;
 }
 

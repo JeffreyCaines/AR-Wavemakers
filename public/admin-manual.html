@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f3f6fb" />
     <link rel="icon" href="/favicon.ico" type="image/x-icon" />
-    <title>Admin User Manual | techNL Wavemakers</title>
+    <title>Admin User Manual | Wavemakers</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -66,22 +66,6 @@
       .top__brand {
         font-weight: 700;
         letter-spacing: 0.01em;
-      }
-
-      .top__links {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem 1rem;
-        font-size: 0.92rem;
-      }
-
-      .top__links a {
-        text-decoration: none;
-        color: var(--muted);
-      }
-
-      .top__links a:hover {
-        color: var(--accent-dark);
       }
 
       main {
@@ -210,19 +194,14 @@
     <header class="top">
       <div class="top__inner">
         <div class="top__brand">Wavemakers Admin Manual</div>
-        <nav class="top__links" aria-label="Quick links">
-          <a href="/admin">Open Admin</a>
-          <a href="/ar-preview">AR Preview</a>
-          <a href="/share-story.html">Share Story Form</a>
-        </nav>
       </div>
     </header>
 
     <main>
       <h1>Admin User Manual</h1>
       <p class="lede">
-        This guide explains how to run the Wavemakers wall-map experience from the admin
-        dashboard. No prior knowledge of the project is required.
+        How to run Wavemakers from the admin dashboard: review stories, place pins, and
+        check what visitors see.
       </p>
 
       <nav class="toc" aria-label="Table of contents">
@@ -231,55 +210,69 @@
           <li><a href="#what">What this system is</a></li>
           <li><a href="#signin">How to sign in</a></li>
           <li><a href="#overview">Admin overview</a></li>
+          <li><a href="#accounts">Accounts</a></li>
           <li><a href="#setup">First-time setup</a></li>
           <li><a href="#cards">Edit Cards</a></li>
           <li><a href="#submissions">Review Submissions</a></li>
           <li><a href="#share">Public story form</a></li>
-          <li><a href="#verify">Verify in AR</a></li>
-          <li><a href="#reference">Quick reference</a></li>
+          <li><a href="#verify">Check the public experience</a></li>
         </ol>
       </nav>
 
       <section id="what">
         <h2>1. What this system is</h2>
         <p>
-          Wavemakers is a WebAR experience for techNL. Visitors point a phone at a physical
-          wall world map. Water ripples reveal pins. Each pin opens an impact story card.
+          Wavemakers is techNL’s map of people and organizations in the NL tech community.
+          Visitors share a story. After you approve it, a pin appears on the map.
         </p>
-        <p>There is also a browser simulator so you can try the same experience without a camera.</p>
+        <p>
+          On site, a phone camera lines up with the wall world map and ripples reveal pins.
+          At home, visitors place a 3D map in the room. On a computer they get a 3D map in
+          the browser.
+        </p>
         <table>
           <thead>
             <tr>
               <th>Page</th>
               <th>Who uses it</th>
-              <th>Purpose</th>
+              <th>What it does</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td><code>/</code></td>
               <td>Public</td>
-              <td>Landing: choose live map or simulator</td>
+              <td>
+                Landing. A disclaimer appears on first visit. Share a story as an Individual
+                or Organization. On a phone, Start opens Select a Mode (On Site or At Home),
+                then loads that viewer at <code>/ar</code>. On a computer, Launch Map in Your Browser
+                loads the 3D map at <code>/ar</code>. A magenta oval spinner shows over the landing
+                gradient until those assets are ready. Back returns to this page.
+              </td>
             </tr>
             <tr>
               <td><code>/ar</code></td>
               <td>Public</td>
-              <td>Live AR with phone camera and physical map</td>
+              <td>
+                Live AR and the 3D map. On a computer a new tab opens the 3D map. On a phone
+                a new tab opens Select a Mode. Also opened from Start or Launch Map.
+                On Site: align the camera with the wall map. Ripples reveal pins. At Home:
+                tap a surface to place the 3D map. The place button removes it so you can
+                place again. Two-finger tap recenters. 3D map: left drag pans, right drag
+                pivots, scroll zooms. Toggle Organization or People. Aim the crosshair at a
+                pin and hold about 2 seconds to open the full details (or click a pin on the
+                3D map).
+              </td>
             </tr>
             <tr>
-              <td><code>/ar-preview</code></td>
-              <td>Public / admins</td>
-              <td>Same UX without camera or wall map</td>
+              <td><code>/legacy-ar-preview</code></td>
+              <td>Admins</td>
+              <td>Admin sign-in, then wall-map AR without a camera or physical map.</td>
             </tr>
             <tr>
               <td><code>/admin</code></td>
-              <td>Admins only</td>
-              <td>Cards, map calibration, ripples, story review</td>
-            </tr>
-            <tr>
-              <td><code>/share-story.html</code></td>
-              <td>Public</td>
-              <td>Submit an impact story for approval</td>
+              <td>Admins</td>
+              <td>Admin dashboard. Cards, calibration, ripples, story review, and account management on the 3D map from above.</td>
             </tr>
           </tbody>
         </table>
@@ -287,24 +280,43 @@
 
       <section id="signin">
         <h2>2. How to sign in</h2>
+        <p>
+          <code>/admin</code> and <code>/legacy-ar-preview</code> require an admin email and password.
+        </p>
         <ol>
           <li>Open <code>/admin</code> in your browser.</li>
-          <li>Enter the admin password.</li>
+          <li>Enter your email and password.</li>
           <li>Select <strong>Sign in</strong>.</li>
         </ol>
         <p>
-          After a successful sign-in, the password is kept for the current browser session.
-          It clears when you choose <strong>Sign Out</strong> or when the browser session ends.
+          If this is your first sign-in with a temporary password, the page asks you to
+          create a new password before you can use the dashboard. Failed sign-in stays
+          on the same page and shows the error. Too many failed attempts are blocked
+          for 15 minutes.
         </p>
         <p>
-          To sign out: open the header menu (three lines on smaller screens) and choose
+          Your session stays for this browser tab. It clears when you select
+          <strong>Sign Out</strong>, or when the session ends.
+        </p>
+        <p>
+          To change your password later, or to sign out, open the
+          <strong>Account</strong> panel (called <strong>Accounts</strong> if you are the
+          project admin) and use <strong>Change password</strong> or
           <strong>Sign Out</strong>.
+        </p>
+        <p>
+          Passwords must be 12 to 128 characters and include a lowercase letter,
+          an uppercase letter, a digit, and a special character. They cannot match
+          the account email.
         </p>
       </section>
 
       <section id="overview">
         <h2>3. Admin overview</h2>
-        <p>After login you see a header with three main panels. Opening one switches the workspace.</p>
+        <p>
+          After login, the header has panels. Opening one switches the workspace.
+          <code>/admin</code> shows the 3D map from above.
+        </p>
         <table>
           <thead>
             <tr>
@@ -315,109 +327,194 @@
           <tbody>
             <tr>
               <td><strong>Edit Cards</strong></td>
-              <td>Create, edit, place, activate, or delete impact cards</td>
+              <td>Create, edit, place, activate, or delete people and organization cards</td>
             </tr>
             <tr>
               <td><strong>Calibrate Map</strong></td>
-              <td>Align cities on the artistic map, and set the ripples origin</td>
+              <td>Align cities on the artistic map, and set where ripples start</td>
             </tr>
             <tr>
               <td><strong>Review Submissions</strong></td>
               <td>Approve or reject stories from the public form</td>
             </tr>
+            <tr>
+              <td><strong>Accounts</strong> / <strong>Account</strong></td>
+              <td>
+                Change your own password or sign out. Project admins see this as
+                <strong>Accounts</strong> and can also create, delete, and reset wavemaker
+                admins
+              </td>
+            </tr>
           </tbody>
         </table>
-        <p>The header menu also includes:</p>
+        <p>
+          <strong>Calibrate Map</strong> is desktop only. It is hidden below 900px width.
+        </p>
+        <p>Opening the panel that is already open closes it.</p>
+        <p>The menu button at the top right has two links:</p>
         <ul>
-          <li><strong>Share Story Form</strong>: opens the public submission page</li>
-          <li><strong>Open AR Viewer</strong>: opens the camera-free preview</li>
+          <li>
+            <strong>Open AR Viewer</strong>: opens <code>/ar</code> in a new tab. On a
+            computer that is the 3D map. On a phone that is Select a Mode.
+          </li>
           <li><strong>User Manual</strong>: this page</li>
-          <li><strong>Sign Out</strong></li>
         </ul>
         <p>
-          The <strong>Review Submissions</strong> button shows a badge with the number of
-          pending stories.
+          <strong>Review Submissions</strong> shows a badge with the number of pending
+          stories.
+        </p>
+      </section>
+
+      <section id="accounts">
+        <h2>4. Accounts</h2>
+        <p>
+          There are two admin roles. The project admin can create, delete, and reset
+          wavemaker accounts. Wavemaker admins can use every other admin tool.
+        </p>
+
+        <h3>4.1 Your own account</h3>
+        <p>
+          Every admin has this panel. Wavemaker admins see it as
+          <strong>Account Settings</strong>. It shows your email and role, plus two buttons:
+        </p>
+        <ul>
+          <li><strong>Change password</strong>: enter your current password, then the new one twice.</li>
+          <li><strong>Sign Out</strong>: ends the session and returns to the sign-in page.</li>
+        </ul>
+
+        <h3>4.2 Managing wavemaker admins</h3>
+        <p>
+          Only the project admin sees the account list and the management buttons.
+        </p>
+        <ol>
+          <li>Open <strong>Accounts</strong>.</li>
+          <li>Select <strong>Add new admin</strong>.</li>
+          <li>Enter the new admin email and a temporary password that meets the password rules.</li>
+          <li>Select <strong>Create account</strong>.</li>
+        </ol>
+        <p>
+          Give that email and temporary password to the new admin. When they sign in,
+          they must create their own password before they can use the dashboard. Until
+          they do, the list shows <strong>Temporary password</strong> next to their name.
+        </p>
+        <p>
+          To recover a forgotten wavemaker password, use <strong>Reset password</strong>
+          and set a new temporary password. <strong>Delete</strong> removes an account and
+          its access immediately.
+        </p>
+        <p class="note">
+          New accounts are always wavemaker admins. You cannot delete the project admin
+          account or reset its password from here. The project admin changes their own
+          password with <strong>Change password</strong>.
         </p>
       </section>
 
       <section id="setup">
-        <h2>4. First-time setup</h2>
+        <h2>5. First-time setup</h2>
         <p>
-          Do this once when the wall map image is new or changed. Good calibration makes
-          geocoded card pins land in the right places.
+          Do this once when the map is new or the projection looks wrong. Good calibration
+          puts geocoded pins in the right places. Use a wide desktop window so Calibrate
+          Map is visible.
         </p>
 
-        <h3>4.1 Calibration points</h3>
+        <h3>5.1 Calibration points</h3>
         <ol>
           <li>Open <strong>Calibrate Map</strong>.</li>
           <li>Stay on the <strong>Calibration points</strong> tab.</li>
           <li>Type a city as <code>City, Country</code> (for example <code>St. John's, Canada</code>).</li>
-          <li>Select <strong>Add point</strong>. A teal pin appears on the map.</li>
-          <li>Drag that pin to the true spot on the artistic map.</li>
-          <li>Repeat for at least two well-separated cities. Three or more improves accuracy.</li>
+          <li>Select <strong>Add point</strong>. A calibration pin appears on the map.</li>
+          <li>
+            Drag that pin to the true spot on the map. You can also nudge with
+            arrow keys or WASD. Hold Shift for finer steps.
+          </li>
+          <li>Repeat for at least two well-separated cities. Three or more is better.</li>
           <li>Select <strong>Save</strong>.</li>
         </ol>
         <p>
-          The status line shows the projection mode in use (for example linear, affine, or TPS).
-          More well-placed points allow a stronger fit.
+          The info button next to Map calibration shows the fit in use. One point shifts
+          the default projection onto that spot. Two points give a linear fit. Three give
+          an affine fit. Four or more use a thin-plate spline, which is the most accurate.
+        </p>
+        <p>
+          Select a point in the list, then <strong>Delete</strong>, to remove it. Remember
+          to <strong>Save</strong> after you delete.
         </p>
         <p class="note">
-          <strong>Tip:</strong> With fewer than two saved points, address geocoding still works
+          <strong>Tip:</strong> With fewer than two saved points, address lookup still works
           but placement on the map is only approximate.
         </p>
 
-        <h3>4.2 Ripples anchor</h3>
+        <h3>5.2 Ripples config</h3>
         <p>
-          Ripples are the water effect that reveals pins in AR. You set where that effect
-          starts on the map.
+          Ripples are the water effect that reveals pins. You set where that effect starts
+          on the map. On <code>/admin</code> the preview is the 3D map from above.
         </p>
         <ol>
-          <li>Still in <strong>Calibrate Map</strong>, open the <strong>Ripples anchor</strong> tab.</li>
-          <li>Choose <strong>Loop</strong> or <strong>Fade</strong> to edit that variant’s origin.</li>
+          <li>Still in <strong>Calibrate Map</strong>, open the <strong>Ripples config</strong> tab.</li>
           <li>
-            Use the <strong>Active in AR viewer</strong> radios to pick which variant the
-            public AR experience uses.
+            Select <strong>3D model</strong> to watch the map’s built-in pulse, or
+            <strong>Ripples shader</strong> for the custom overlay.
           </li>
-          <li>Drag on the ripples preview to move the origin.</li>
-          <li>Select <strong>Save</strong>.</li>
+          <li>
+            For the custom overlay, select a <strong>Layer 7 cutoff</strong> (outer or inner
+            edge) and drag on the map to move the origin.
+          </li>
+          <li>
+            Rings, line width, max radius, timing, speed, softness, opacity, and color are a
+            live preview only.
+          </li>
+          <li>Select <strong>Save</strong> to store the origin.</li>
         </ol>
+        <p class="note">
+          <strong>Only the origin is saved.</strong> The sliders help you judge the effect
+          here, but the public viewers use their own fixed ripple settings. Changing a
+          slider will not change what visitors see.
+        </p>
       </section>
 
       <section id="cards">
-        <h2>5. Edit Cards</h2>
+        <h2>6. Edit Cards</h2>
         <p>
-          Open <strong>Edit Cards</strong>. You get a cropped wall map on one side and a
+          Open <strong>Edit Cards</strong>. You get the 3D map from above on one side and a
           cards list or edit form on the other.
         </p>
+        <p>
+          Toggle <strong>Individuals</strong> or <strong>Organizations</strong> at the top of
+          the list. The map only shows pins for the selected type. A new card uses whichever
+          tab is open.
+        </p>
 
-        <h3>5.1 Map controls</h3>
+        <h3>6.1 Map controls</h3>
         <ul>
-          <li><strong>Scroll wheel</strong>: zoom in or out (about 1× to 6×).</li>
+          <li><strong>Scroll wheel</strong>: zoom in or out (about 1x to 6x).</li>
           <li><strong>Drag empty map</strong>: pan when zoomed in.</li>
           <li><strong>Drag selected pin</strong>: only while that card’s edit form is open.</li>
           <li>
-            <strong>Desktop hover</strong>: hover a pin or list item to preview the card on the map.
+            <strong>Arrow keys / WASD</strong>: nudge the selected pin. Hold Shift for finer
+            steps.
+          </li>
+          <li>
+            <strong>Desktop hover</strong>: hover a pin or list item to preview the card on
+            the map.
           </li>
           <li>
             <strong>Phone / narrow screen</strong>: tap a pin to open that card in the sidebar.
           </li>
         </ul>
 
-        <h3>5.2 Create a card</h3>
+        <h3>6.2 Create a card</h3>
         <ol>
+          <li>Pick <strong>Individuals</strong> or <strong>Organizations</strong>.</li>
           <li>Select <strong>New card</strong>.</li>
           <li>
-            On the <strong>Details</strong> tab, fill in:
-            <ul>
-              <li><strong>Title</strong> (required)</li>
-              <li><strong>Company</strong> (optional)</li>
-              <li><strong>Impact story</strong> (required)</li>
-              <li><strong>Address</strong> (city / country text)</li>
-              <li><strong>Active</strong>: leave checked if the card should appear in public AR</li>
-            </ul>
+            On the <strong>Details</strong> tab, fill in the same fields visitors use on the
+            public form. For a person that is name, profession, current location, hometown,
+            and the optional story questions. For an organization that is org name, industry,
+            head office, and the optional story questions.
           </li>
           <li>
-            Optional: open the <strong>Media</strong> tab and add an image URL and/or link URL.
+            Under <strong>Map placement</strong>, keep <strong>Active</strong> checked if the
+            card should appear for visitors.
           </li>
           <li>
             Place the pin:
@@ -426,38 +523,55 @@
               <li>Drag the draft pin on the map.</li>
             </ul>
           </li>
+          <li>
+            Optional: open the <strong>Media</strong> tab. People get a photo URL.
+            Organizations get logo, extra media, and YouTube.
+          </li>
           <li>Select <strong>Save</strong>.</li>
         </ol>
         <p>
+          Media fields are links, not file pickers. Paste a public <code>https</code> link,
+          or reuse the <code>/api/uploads/…</code> link from the visitor’s submission.
+        </p>
+        <p>
           Geocode may snap to an existing nearby pin (same place name, or within about 500 m).
-          A toast message confirms when that happens.
+          A toast confirms when that happens. Saving then adds another entry at that pin.
+        </p>
+        <p>
+          After you change calibration, <strong>Recalculate pin from calibration</strong>
+          moves the pin from the stored lat/lng. Save to keep it.
+        </p>
+        <p class="note">
+          Consent and mailing-list checkboxes are read-only. They come from the original
+          submission.
         </p>
 
-        <h3>5.3 Edit or move a card</h3>
+        <h3>6.3 Edit or move a card</h3>
         <ol>
           <li>Select a card from the list, or tap its pin on a small screen.</li>
           <li>Change fields in the form, and/or drag the selected pin.</li>
           <li>Select <strong>Save</strong>.</li>
         </ol>
+        <p>Inactive cards show as <em>Inactive</em> in the list.</p>
 
-        <h3>5.4 Active vs inactive</h3>
+        <h3>6.4 Active vs inactive</h3>
         <p>
-          Uncheck <strong>Active</strong> to hide a card from the public AR experience.
-          Inactive cards remain in the admin list so you can finish placement or hold a draft.
+          Uncheck <strong>Active</strong> to hide a card from visitors. Inactive cards stay
+          in the admin list so you can finish placement or hold a draft.
         </p>
 
-        <h3>5.5 Several stories at one place</h3>
+        <h3>6.5 Several stories at one place</h3>
         <ol>
           <li>Open an existing card.</li>
           <li>Select <strong>Add entry to this pin</strong>.</li>
-          <li>Fill in the new title and story, then <strong>Save</strong>.</li>
+          <li>Fill in the new person or organization, then <strong>Save</strong>.</li>
         </ol>
         <p>
-          The pin shows that multiple entries exist. In the AR preview, visitors pick which
-          entry to read. Dragging and saving moves all sibling cards together.
+          The pin shows that several entries exist. Visitors pick which one to read.
+          Dragging and saving moves every card at that pin together.
         </p>
 
-        <h3>5.6 Delete a card</h3>
+        <h3>6.6 Delete a card</h3>
         <ol>
           <li>Open the card.</li>
           <li>Select <strong>Delete</strong> and confirm.</li>
@@ -465,99 +579,94 @@
       </section>
 
       <section id="submissions">
-        <h2>6. Review Submissions</h2>
+        <h2>7. Review Submissions</h2>
         <p>
-          Public visitors send stories through the share form. Those land here as pending
+          Public visitors send stories from the landing page. Those land here as pending
           items. The header badge shows how many are waiting.
         </p>
         <ol>
           <li>Open <strong>Review Submissions</strong>.</li>
-          <li>Select a pending item to read title, company, address, email, story, and links.</li>
           <li>
-            Choose:
+            Toggle <strong>Individuals</strong> or <strong>Organizations</strong> to match
+            the form they used.
+          </li>
+          <li>
+            Select a pending item. The detail view shows the submitted fields, photos,
+            and links.
+          </li>
+          <li>
+            On a phone, tap an item to open the detail overlay. Use the back button to
+            return to the list.
+          </li>
+          <li>
+            Select:
             <ul>
               <li>
-                <strong>Approve</strong>: creates an inactive impact card, removes the
-                submission, switches you to Edit Cards, and tries to geocode the address.
+                <strong>Approve</strong>: creates an inactive card, removes the submission,
+                switches you to Edit Cards, and tries to geocode the address (current
+                location for people, head office for organizations).
               </li>
               <li>
-                <strong>Reject</strong>: permanently deletes the submission after confirm.
+                <strong>Reject</strong>: permanently deletes the submission after you confirm.
               </li>
             </ul>
           </li>
         </ol>
+        <p>
+          A <strong>Homograph detected</strong> label means a lookalike character was found
+          in an email or URL and replaced with Latin text. Check those fields before you
+          approve. The detail view shows what was swapped.
+        </p>
         <p class="note">
-          <strong>Important:</strong> Approved cards start inactive and may sit near the map
-          center until geocode or manual placement finishes. Open the card, fix the pin,
-          check <strong>Active</strong>, then <strong>Save</strong> before it appears in AR.
+          <strong>Important:</strong> Approved cards start inactive. They may sit near the
+          map center until geocode or manual placement finishes. Open the card, fix the pin,
+          check <strong>Active</strong>, then <strong>Save</strong> before it appears for
+          visitors.
         </p>
       </section>
 
       <section id="share">
-        <h2>7. Public story form</h2>
+        <h2>8. Public story form</h2>
         <p>
-          Share <code>/share-story.html</code> with people who should submit impact stories.
-          You can also open it from the admin menu as <strong>Share Story Form</strong>.
+          Visitors submit from the landing page. On a computer they select Individual or
+          Organization. On a phone they tap Share Your Story, then select Individual or
+          Organization. A first-visit disclaimer notes this is not a production project.
         </p>
         <p>
-          Submissions do not appear in AR until an admin approves them and activates the
-          resulting card (see section 6).
+          Submissions do not appear on the map until you approve them and turn the card
+          <strong>Active</strong> (see section 7).
         </p>
       </section>
 
       <section id="verify">
-        <h2>8. Verify in AR</h2>
+        <h2>9. Check the public experience</h2>
+        <p>Only <strong>Active</strong> cards appear for visitors. Check that box first if a pin is missing.</p>
+        <p>Every public viewer has a header toggle for <strong>Organization</strong> or <strong>People</strong>, plus search and filters (profession for people, industry for organizations).</p>
         <ol>
           <li>
-            From the admin menu, open <strong>Open AR Viewer</strong> (or go to
-            <code>/ar-preview</code>).
-          </li>
-          <li>Confirm ripples, pin positions, and card content look right.</li>
-          <li>
-            For the live wall: open <code>/ar</code> on a phone over HTTPS, point at the
-            physical map, and aim the crosshair at pins.
-          </li>
-        </ol>
-        <p>
-          Only <strong>Active</strong> cards appear for visitors. If a card is missing in AR,
-          check that checkbox first.
-        </p>
-      </section>
-
-      <section id="reference">
-        <h2>9. Quick reference</h2>
-
-        <h3>Key ideas</h3>
-        <ul>
-          <li>
-            <strong>Active</strong>: card is visible in public AR. Unchecked means admin-only draft.
+            From the admin menu, open <strong>Open AR Viewer</strong>. On a computer that is
+            the 3D map. On a phone that is Select a Mode.
           </li>
           <li>
-            <strong>Calibration</strong>: teaches the app how lat/lng maps onto your artistic
-            wall image. Needed for accurate geocode placement.
+            On the 3D map (<code>/ar</code> on a computer, or Launch Map from
+            <code>/</code>): left drag pans (the view stays on the map), right drag
+            pivots, scroll zooms. Hover a pin for a popup. Click to open the details
+            shelf. Use Replay reveal to watch the pulse again.
           </li>
           <li>
-            <strong>Pins</strong>: positions on the map image. Saving a card stores that placement.
+            For the live wall: open <code>/ar</code> on a phone over HTTPS, select On Site,
+            and align the camera with the map. Aim the crosshair at a pin and hold about
+            2 seconds.
           </li>
           <li>
-            <strong>Ripples anchor</strong>: where the reveal effect starts; separate from card pins.
+            For at-home AR: open <code>/ar</code>, select At Home. Tap a surface to place
+            the map. Use the place button to remove it and place again. Two-finger tap
+            recenters.
           </li>
-        </ul>
-
-        <h3>Common mistakes</h3>
-        <ul>
-          <li>Edited a pin or field but forgot <strong>Save</strong>.</li>
-          <li>Approved a submission and left the new card <strong>inactive</strong>.</li>
-          <li>Geocoded with fewer than two calibration points, so placement looks wrong.</li>
-          <li>Moved a calibration or ripples pin but did not <strong>Save</strong> that panel.</li>
-          <li>Expected a draft card to show in <code>/ar</code> while Active was off.</li>
-        </ul>
-
-        <h3>Suggested daily workflow</h3>
-        <ol>
-          <li>Review Submissions: approve or reject.</li>
-          <li>Edit Cards: place, activate, and polish new stories.</li>
-          <li>Open AR Viewer: spot-check before visitors see the wall.</li>
+          <li>
+            For a camera-free check of the wall-map AR, open
+            <code>/legacy-ar-preview</code>. It is password-gated.
+          </li>
         </ol>
       </section>
     </main>

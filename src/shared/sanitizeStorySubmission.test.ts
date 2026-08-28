@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sanitizeIndividualSubmissionInput } from "./sanitizeGetNoticed";
 import {
   sanitizeEmail,
   sanitizeHttpUrl,
@@ -43,53 +44,87 @@ describe("sanitizeMultilineText", () => {
 
 describe("sanitizeEmail", () => {
   it("accepts valid ASCII email", () => {
-    expect(sanitizeEmail("Contact@Example.COM")).toBe("contact@example.com");
+    expect(sanitizeEmail("Contact@Example.COM")).toEqual({
+      email: "contact@example.com",
+      substitutions: [],
+    });
   });
 
   it("rejects invalid format", () => {
-    expect(sanitizeEmail("not-an-email")).toBeUndefined();
-    expect(sanitizeEmail("@missing-local.com")).toBeUndefined();
+    expect(sanitizeEmail("not-an-email")).toEqual({ substitutions: [] });
+    expect(sanitizeEmail("@missing-local.com")).toEqual({ substitutions: [] });
   });
 
-  it("rejects IDN homographs in the domain", () => {
-    // Cyrillic "a" (U+0430) in domain label
-    expect(sanitizeEmail("user@exampl\u0430.com")).toBeUndefined();
-    expect(sanitizeEmail("user@\u0440\u0430ypal.com")).toBeUndefined();
+  it("replaces IDN homographs in the domain and does not keep the original glyph", () => {
+    expect(sanitizeEmail("user@exampl\u0435.com")).toEqual({
+      email: "user@example.com",
+      substitutions: [{ correct: "e", homoglyph: "\u0435" }],
+    });
+    expect(sanitizeEmail("user@\u0440\u0430ypal.com")).toEqual({
+      email: "user@paypal.com",
+      substitutions: [
+        { correct: "p", homoglyph: "\u0440" },
+        { correct: "a", homoglyph: "\u0430" },
+      ],
+    });
   });
 
-  it("rejects IDN homographs in the local part", () => {
-    expect(sanitizeEmail("\u0430dmin@example.com")).toBeUndefined();
+  it("replaces IDN homographs in the local part", () => {
+    expect(sanitizeEmail("\u0430dmin@example.com")).toEqual({
+      email: "admin@example.com",
+      substitutions: [{ correct: "a", homoglyph: "\u0430" }],
+    });
   });
 
-  it("returns undefined for empty input", () => {
-    expect(sanitizeEmail("")).toBeUndefined();
-    expect(sanitizeEmail("   ")).toBeUndefined();
+  it("returns undefined email for empty input", () => {
+    expect(sanitizeEmail("")).toEqual({ substitutions: [] });
+    expect(sanitizeEmail("   ")).toEqual({ substitutions: [] });
   });
 });
 
 describe("sanitizeHttpUrl", () => {
   it("accepts valid http and https URLs", () => {
-    expect(sanitizeHttpUrl("https://example.com/logo.png", 500)).toBe("https://example.com/logo.png");
-    expect(sanitizeHttpUrl("http://example.co.uk", 500)).toBe("http://example.co.uk/");
+    expect(sanitizeHttpUrl("https://example.com/logo.png", 500)).toEqual({
+      url: "https://example.com/logo.png",
+      substitutions: [],
+    });
+    expect(sanitizeHttpUrl("http://example.co.uk", 500)).toEqual({
+      url: "http://example.co.uk/",
+      substitutions: [],
+    });
   });
 
   it("rejects non-http schemes and embedded credentials", () => {
-    expect(sanitizeHttpUrl("javascript:alert(1)", 500)).toBeUndefined();
-    expect(sanitizeHttpUrl("https://user:pass@example.com", 500)).toBeUndefined();
+    expect(sanitizeHttpUrl("javascript:alert(1)", 500)).toEqual({ substitutions: [] });
+    expect(sanitizeHttpUrl("https://user:pass@example.com", 500)).toEqual({ substitutions: [] });
   });
 
-  it("rejects unicode hostname homographs before normalization", () => {
-    // Cyrillic "apple" lookalike
-    expect(sanitizeHttpUrl("https://\u0430\u0440\u0440le.com", 500)).toBeUndefined();
+  it("replaces unicode hostname homographs and does not keep the original host", () => {
+    const result = sanitizeHttpUrl("https://\u0430\u0440\u0440le.com", 500);
+    expect(result.url).toBe("https://apple.com/");
+    expect(result.substitutions).toEqual([
+      { correct: "a", homoglyph: "\u0430" },
+      { correct: "p", homoglyph: "\u0440" },
+    ]);
+    expect(result.url).not.toContain("\u0430");
+    expect(result.url).not.toContain("\u0440");
   });
 
-  it("rejects punycode IDN labels", () => {
-    expect(sanitizeHttpUrl("https://xn--80ak6aa92e.com", 500)).toBeUndefined();
+  it("decodes punycode IDN labels, replaces homoglyphs, and drops the original encoding", () => {
+    const result = sanitizeHttpUrl("https://xn--80ak6aa92e.com", 500);
+    expect(result.url).toBe("https://apple.com/");
+    expect(result.url).not.toContain("xn--");
+    expect(result.substitutions).toEqual([
+      { correct: "a", homoglyph: "\u0430" },
+      { correct: "p", homoglyph: "\u0440" },
+      { correct: "l", homoglyph: "\u04cf" },
+      { correct: "e", homoglyph: "\u0435" },
+    ]);
   });
 
-  it("returns undefined for empty or invalid URLs", () => {
-    expect(sanitizeHttpUrl("", 500)).toBeUndefined();
-    expect(sanitizeHttpUrl("not a url", 500)).toBeUndefined();
+  it("returns undefined URL for empty or invalid URLs", () => {
+    expect(sanitizeHttpUrl("", 500)).toEqual({ substitutions: [] });
+    expect(sanitizeHttpUrl("not a url", 500)).toEqual({ substitutions: [] });
   });
 });
 
@@ -111,6 +146,7 @@ describe("sanitizeStorySubmissionInput", () => {
     expect(result.value.title).toBe("Ocean intelligence");
     expect(result.value.contactEmail).toBe("team@example.com");
     expect(result.value.imageUrl).toBe("https://example.com/logo.png");
+    expect(result.value.hadHomograph).toBe(false);
   });
 
   it("accepts submission without optional fields", () => {
@@ -123,6 +159,7 @@ describe("sanitizeStorySubmissionInput", () => {
     expect(result).toEqual({
       ok: true,
       value: {
+        submissionType: "legacy",
         title: "Title",
         companyName: "",
         body: "Story body",
@@ -130,6 +167,7 @@ describe("sanitizeStorySubmissionInput", () => {
         contactEmail: undefined,
         imageUrl: undefined,
         linkUrl: undefined,
+        hadHomograph: false,
       },
     });
   });
@@ -153,28 +191,41 @@ describe("sanitizeStorySubmissionInput", () => {
     });
   });
 
-  it("rejects invalid and homograph emails", () => {
+  it("rejects invalid emails and replaces homograph emails", () => {
     expect(
       sanitizeStorySubmissionInput({ ...validInput, contactEmail: "bad-email" })
     ).toEqual({
       ok: false,
       error: "Enter a valid ASCII email address or leave it blank.",
     });
-    expect(
-      sanitizeStorySubmissionInput({ ...validInput, contactEmail: "user@exampl\u0430.com" })
-    ).toEqual({
-      ok: false,
-      error: "Enter a valid ASCII email address or leave it blank.",
+    const homograph = sanitizeStorySubmissionInput({
+      ...validInput,
+      contactEmail: "user@exampl\u0435.com",
     });
+    expect(homograph.ok).toBe(true);
+    if (!homograph.ok) return;
+    expect(homograph.value.hadHomograph).toBe(true);
+    expect(homograph.value.contactEmail).toBe("user@example.com");
+    expect(homograph.value.contactEmail).not.toContain("\u0435");
+    expect(homograph.value.homographFields?.contactEmail).toEqual([
+      { correct: "e", homoglyph: "\u0435" },
+    ]);
   });
 
-  it("rejects homograph URLs", () => {
-    expect(
-      sanitizeStorySubmissionInput({ ...validInput, linkUrl: "https://\u0430\u0440\u0440le.com" })
-    ).toEqual({
-      ok: false,
-      error: "Website URL must be a valid http or https link with an ASCII domain name.",
+  it("replaces homograph URLs and flags the field", () => {
+    const result = sanitizeStorySubmissionInput({
+      ...validInput,
+      linkUrl: "https://\u0430\u0440\u0440le.com",
     });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.hadHomograph).toBe(true);
+    expect(result.value.linkUrl).toBe("https://apple.com/");
+    expect(result.value.linkUrl).not.toContain("\u0430");
+    expect(result.value.homographFields?.linkUrl).toEqual([
+      { correct: "a", homoglyph: "\u0430" },
+      { correct: "p", homoglyph: "\u0440" },
+    ]);
   });
 
   it("strips HTML from text fields in accepted submissions", () => {
@@ -194,5 +245,65 @@ describe("sanitizeStorySubmissionInput", () => {
   it("rejects non-object input", () => {
     expect(sanitizeStorySubmissionInput(null)).toEqual({ ok: false, error: "Invalid submission." });
     expect(sanitizeStorySubmissionInput([])).toEqual({ ok: false, error: "Invalid submission." });
+  });
+});
+
+describe("sanitizeIndividualSubmissionInput homograph flag", () => {
+  const validIndividual = {
+    submissionType: "individual",
+    firstName: "Ada",
+    lastName: "Lovelace",
+    isTechNlMember: "Yes",
+    profession: ["Software"],
+    currLocation: "St. John's, NL",
+    origLocation: "St. John's, NL",
+    email: "ada@example.com",
+    logoUrl: "/api/uploads/abc123",
+    optInModeration: true,
+    optInNewsletter: false,
+  };
+
+  it("replaces LinkedIn homoglyphs, flags the field, and drops the original host", () => {
+    const result = sanitizeIndividualSubmissionInput({
+      ...validIndividual,
+      linkedin: "https://\u0430\u0440\u0440le.com/in/ada",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.hadHomograph).toBe(true);
+    expect(result.value.linkedin).toBe("https://apple.com/in/ada");
+    expect(result.value.linkedin).not.toContain("\u0430");
+    expect(result.value.homographFields?.linkedin).toEqual([
+      { correct: "a", homoglyph: "\u0430" },
+      { correct: "p", homoglyph: "\u0440" },
+    ]);
+  });
+
+  it("keeps client substitution flags when the posted value is already cleaned", () => {
+    const result = sanitizeIndividualSubmissionInput({
+      ...validIndividual,
+      linkedin: "https://apple.com/in/ada",
+      homographFields: {
+        linkedin: [{ correct: "a", homoglyph: "\u0430" }],
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.hadHomograph).toBe(true);
+    expect(result.value.linkedin).toBe("https://apple.com/in/ada");
+    expect(result.value.homographFields?.linkedin).toEqual([
+      { correct: "a", homoglyph: "\u0430" },
+    ]);
+  });
+
+  it("leaves homograph flags empty for ASCII URLs and local uploads", () => {
+    const result = sanitizeIndividualSubmissionInput({
+      ...validIndividual,
+      linkedin: "https://linkedin.com/in/ada",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.hadHomograph).toBe(false);
+    expect(result.value.homographFields).toBeUndefined();
   });
 });

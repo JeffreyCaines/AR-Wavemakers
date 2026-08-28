@@ -266,6 +266,7 @@ export interface CardDetailSheet {
   isOpen: () => boolean;
   getCardId: () => string | null;
   getGroupKey: () => string | null;
+  destroy: () => void;
 }
 
 function renderOverlayPanel(overlay: CardOverlay): void {
@@ -293,6 +294,11 @@ export function createLocationOverlay(group: LocationGroup, aspectRatio: number)
 
   const marker = document.createElement("div");
   marker.className = "ar-card__marker";
+  const count = group.cards.length;
+  if (count > 1) {
+    marker.textContent = String(count);
+  }
+  marker.setAttribute("aria-label", count === 1 ? "1 story" : `${count} stories`);
   markerHost.append(marker);
 
   const panelHost = document.createElement("div");
@@ -679,9 +685,26 @@ export function createCardDetailSheet(
 
   backdrop.addEventListener("click", () => dismissInternal(false));
 
+  const isDesktopSideDock = (): boolean =>
+    Boolean(sheet.closest(".map-viewer")) && window.matchMedia("(min-width: 900px)").matches;
+
+  sheet.querySelector(".ar-sheet__close")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dismissInternal(false);
+  });
+
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (!open || event.key !== "Escape") return;
+    event.preventDefault();
+    dismissInternal(false);
+  };
+  window.addEventListener("keydown", onKeyDown);
+
   const onPointerDown = (event: PointerEvent): void => {
-    if (!open) return;
+    if (!open || isDesktopSideDock()) return;
     if (event.target instanceof Element && event.target.closest("a")) return;
+    if (event.target instanceof Element && event.target.closest(".ar-sheet__close")) return;
 
     dragPointerId = event.pointerId;
     dragStartY = event.clientY;
@@ -785,6 +808,16 @@ export function createCardDetailSheet(
     },
     getGroupKey(): string | null {
       return groupKey;
+    },
+    destroy(): void {
+      window.removeEventListener("keydown", onKeyDown);
+      sheet.removeEventListener("pointerdown", onPointerDown);
+      sheet.removeEventListener("pointermove", onPointerMove);
+      sheet.removeEventListener("pointerup", onPointerUp);
+      sheet.removeEventListener("pointercancel", onPointerUp);
+      open = false;
+      historyPushed = false;
+      hideSheet();
     },
   };
 }

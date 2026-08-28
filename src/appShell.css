@@ -1,0 +1,36 @@
+.experience-host {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.experience-host.is-live {
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 1;
+}
+
+.copy-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-image: linear-gradient(#1f2029, #1c294b, #37204e);
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: top;
+  pointer-events: all;
+}
+
+.copy-loading__spinner {
+  display: flex;
+}
+
+.copy-loading__spinner svg {
+  display: block;
+  overflow: visible;
+}

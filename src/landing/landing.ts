@@ -13,10 +13,10 @@ export function initLanding(root: HTMLElement): void {
           <a href="/ar" class="landing__btn landing__btn--primary">
             Phone with the real map
           </a>
-          <a href="/ar-preview" class="landing__btn landing__btn--secondary">
+          <a href="/legacy-ar-preview" class="landing__btn landing__btn--secondary">
             Browser simulator
           </a>
-          <a href="/8th-ar" class="landing__btn landing__btn--secondary">
+          <a href="/ar" class="landing__btn landing__btn--secondary">
             8th Wall SLAM (experimental)
           </a>
         </div>

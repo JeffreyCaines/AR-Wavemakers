@@ -444,6 +444,177 @@ function wireDropdowns(root: HTMLElement, form: HTMLFormElement): void {
   });
 }
 
+const REQUIRED_ERROR_CLASS = "copy-form__error-border";
+
+type RequiredFieldTarget = {
+  highlightEl: HTMLElement;
+  isFilled: () => boolean;
+};
+
+function textRequiredTarget(
+  form: HTMLFormElement,
+  name: string
+): RequiredFieldTarget | null {
+  const input = form.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+    `input[name="${name}"], textarea[name="${name}"]`
+  );
+  if (!input) return null;
+  return {
+    highlightEl: input,
+    isFilled: () => Boolean(input.value.trim()),
+  };
+}
+
+function singleDropdownTarget(
+  form: HTMLFormElement,
+  name: string
+): RequiredFieldTarget | null {
+  const dd = form.querySelector<HTMLElement>(`[data-dd="${name}"][data-dd-mode="single"]`);
+  if (!dd) return null;
+  const hidden = dd.querySelector<HTMLInputElement>('input[type="hidden"]');
+  const toggle = dd.querySelector<HTMLElement>(".copy-form__dd-toggle");
+  if (!hidden || !toggle) return null;
+  return {
+    highlightEl: toggle,
+    isFilled: () => Boolean(hidden.value.trim()),
+  };
+}
+
+function multiDropdownTarget(
+  form: HTMLFormElement,
+  name: string
+): RequiredFieldTarget | null {
+  const dd = form.querySelector<HTMLElement>(`[data-dd="${name}"][data-dd-mode="multi"]`);
+  if (!dd) return null;
+  const toggle = dd.querySelector<HTMLElement>(".copy-form__dd-toggle");
+  if (!toggle) return null;
+  return {
+    highlightEl: toggle,
+    isFilled: () => readMulti(form, name).length > 0,
+  };
+}
+
+function repeatRequiredTarget(
+  form: HTMLFormElement,
+  name: string
+): RequiredFieldTarget | null {
+  const host = form.querySelector<HTMLElement>(`[data-repeat="${name}"]`);
+  if (!host) return null;
+  const firstInput = host.querySelector<HTMLInputElement>("[data-repeat-input]");
+  if (!firstInput) return null;
+  return {
+    highlightEl: firstInput,
+    isFilled: () => readRepeat(form, name).length > 0,
+  };
+}
+
+function logoUploadTarget(form: HTMLFormElement): RequiredFieldTarget | null {
+  const upload = form.querySelector<HTMLElement>('[data-upload="logo"]');
+  if (!upload) return null;
+  const hidden = upload.querySelector<HTMLInputElement>('input[name="logoUrl"]');
+  const preview = upload.querySelector<HTMLElement>(".copy-form__photo-preview");
+  if (!hidden || !preview) return null;
+  return {
+    highlightEl: preview,
+    isFilled: () => Boolean(hidden.value.trim()),
+  };
+}
+
+function consentTarget(form: HTMLFormElement): RequiredFieldTarget | null {
+  const input = form.querySelector<HTMLInputElement>('input[name="optInModeration"]');
+  const label = input?.closest<HTMLElement>(".copy-form__check");
+  if (!input || !label) return null;
+  return {
+    highlightEl: label,
+    isFilled: () => input.checked,
+  };
+}
+
+/** Required fields in top-to-bottom page order. */
+function requiredFieldTargets(
+  form: HTMLFormElement,
+  kind: GetNoticedKind
+): RequiredFieldTarget[] {
+  const targets =
+    kind === "individual"
+      ? [
+          logoUploadTarget(form),
+          textRequiredTarget(form, "firstName"),
+          textRequiredTarget(form, "lastName"),
+          singleDropdownTarget(form, "isTechNlMember"),
+          multiDropdownTarget(form, "profession"),
+          textRequiredTarget(form, "currLocation"),
+          textRequiredTarget(form, "origLocation"),
+          textRequiredTarget(form, "email"),
+          consentTarget(form),
+        ]
+      : [
+          logoUploadTarget(form),
+          textRequiredTarget(form, "submitterName"),
+          textRequiredTarget(form, "submitterEmail"),
+          textRequiredTarget(form, "orgName"),
+          singleDropdownTarget(form, "isTechNlMember"),
+          multiDropdownTarget(form, "industry"),
+          textRequiredTarget(form, "nlLocation"),
+          repeatRequiredTarget(form, "locations"),
+          textRequiredTarget(form, "websiteUrl"),
+          textRequiredTarget(form, "orgContactEmail"),
+          consentTarget(form),
+        ];
+  return targets.filter((t): t is RequiredFieldTarget => Boolean(t));
+}
+
+function clearRequiredErrorHighlights(form: HTMLFormElement): void {
+  form.querySelectorAll(`.${REQUIRED_ERROR_CLASS}`).forEach((el) => {
+    el.classList.remove(REQUIRED_ERROR_CLASS);
+  });
+}
+
+function emptyRequiredTargets(
+  form: HTMLFormElement,
+  kind: GetNoticedKind
+): RequiredFieldTarget[] {
+  return requiredFieldTargets(form, kind).filter((t) => !t.isFilled());
+}
+
+function highlightEmptyRequired(
+  form: HTMLFormElement,
+  empty: RequiredFieldTarget[],
+  options: { scroll?: boolean } = {}
+): void {
+  clearRequiredErrorHighlights(form);
+  for (const target of empty) {
+    target.highlightEl.classList.add(REQUIRED_ERROR_CLASS);
+  }
+  if (options.scroll === false) return;
+  scrollToRequiredTarget(empty[0]);
+}
+
+function scrollToRequiredTarget(target: RequiredFieldTarget | undefined): void {
+  if (!target) return;
+  target.highlightEl.scrollIntoView({ behavior: "smooth", block: "center" });
+  const focusable = target.highlightEl.matches("input, textarea, button")
+    ? target.highlightEl
+    : target.highlightEl.querySelector<HTMLElement>("input, textarea, button");
+  if (focusable && "focus" in focusable) {
+    try {
+      focusable.focus({ preventScroll: true });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function clearFilledRequiredHighlights(
+  form: HTMLFormElement,
+  kind: GetNoticedKind
+): void {
+  for (const target of requiredFieldTargets(form, kind)) {
+    if (!target.highlightEl.classList.contains(REQUIRED_ERROR_CLASS)) continue;
+    if (target.isFilled()) target.highlightEl.classList.remove(REQUIRED_ERROR_CLASS);
+  }
+}
+
 async function handleFileUpload(
   fileInput: HTMLInputElement,
   previewHost: HTMLElement,
@@ -515,7 +686,7 @@ export function openGetNoticedForm(root: HTMLElement, kind: GetNoticedKind): voi
   overlay.querySelector(".copy-form__close")?.addEventListener("click", close);
   overlay.querySelector(".copy-form-overlay__desktop-close")?.addEventListener("click", close);
 
-  const showPopup = (key: PopupKey): void => {
+  const showPopup = (key: PopupKey, onDismiss?: () => void): void => {
     const content = popupContent(key, kind);
     const fieldInfoKeys: PopupKey[] = [
       "email",
@@ -542,7 +713,10 @@ export function openGetNoticedForm(root: HTMLElement, kind: GetNoticedKind): voi
         }
       </div>`;
     overlay.appendChild(modal);
-    const dismiss = (): void => modal.remove();
+    const dismiss = (): void => {
+      modal.remove();
+      onDismiss?.();
+    };
     modal.querySelector(".copy-modal__close")?.addEventListener("click", dismiss);
     modal.querySelector("[data-done]")?.addEventListener("click", () => {
       dismiss();
@@ -627,6 +801,9 @@ export function openGetNoticedForm(root: HTMLElement, kind: GetNoticedKind): voi
       errorEl.hidden = true;
       try {
         await handleFileUpload(fileInput, preview, hidden);
+        if (host.dataset.upload === "logo") {
+          clearFilledRequiredHighlights(form, kind);
+        }
       } catch (error) {
         errorEl.textContent = error instanceof Error ? error.message : "Upload failed.";
         errorEl.hidden = false;
@@ -636,10 +813,33 @@ export function openGetNoticedForm(root: HTMLElement, kind: GetNoticedKind): voi
 
   form.querySelectorAll<HTMLElement>("[data-upload]").forEach(wireUpload);
 
+  const recheckRequiredHighlights = (): void => {
+    clearFilledRequiredHighlights(form, kind);
+  };
+  form.addEventListener("input", recheckRequiredHighlights);
+  form.addEventListener("change", recheckRequiredHighlights);
+  form.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest(".copy-form__dd-option")) {
+      queueMicrotask(recheckRequiredHighlights);
+    }
+  });
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     errorEl.hidden = true;
     submitBtn.disabled = true;
+
+    const emptyRequired = emptyRequiredTargets(form, kind);
+    if (emptyRequired.length > 0) {
+      highlightEmptyRequired(form, emptyRequired, { scroll: false });
+      showPopup("incomplete", () => {
+        scrollToRequiredTarget(emptyRequired[0]);
+      });
+      submitBtn.disabled = false;
+      return;
+    }
+    clearRequiredErrorHighlights(form);
 
     const fd = new FormData(form);
     let payload: Record<string, unknown>;

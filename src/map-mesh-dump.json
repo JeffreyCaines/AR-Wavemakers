@@ -1,0 +1,20 @@
+console.table() debugger eval code:91:11
+(index)	name	uuid	visible	verts	posNonzero	indexCount	material
+0	techNL_map_land	0e68dc49-fac8-4953-a533-9a0bddb67173	true	37212	111636	100695	map_land_M
+1	techNL_map_NFLD	5aba99dd-ba80-4328-aa30-2651c8e6398c	true	6868	20604	16302	map_nfld_M
+2	Layer_01	d9aedab7-8428-4362-8b78-ea788919c9c9	true	713	2139	1902	map_water_M
+3	Layer_02	66158bb4-9ce4-434e-b574-ba6dde8f1810	true	1513	4539	4245	map_water_M
+4	Layer_03	c4d4ee02-4ff4-435d-9383-93b7ab2164c3	true	1289	3867	3567	map_water_M
+5	Layer_04	615b8217-a2ec-4e02-8020-429f7e693948	true	1390	4170	3846	map_water_M
+6	Layer_05	e3ccf498-a5e4-4811-ad77-53e6c0b48670	true	1372	4116	3720	map_water_M
+7	Layer_06	3b234cf5-61f4-468b-9b18-cef4917c0b26	true	1327	3981	3630	map_water_M
+8	Layer_07	a11482ce-f98b-4f35-8f44-859859f8b559	true	1565	4695	4359	map_water_M
+9	techNL_map_land	97904dbb-a187-45dd-a865-924b071d4f41	true	37212	111636	100695	MeshBasicMaterial
+10	techNL_map_NFLD	755e1ca9-451a-48eb-9b64-491b2547cf11	true	6868	20604	16302	MeshBasicMaterial
+11	Layer_01	ca7e5c06-5e0a-478d-9e77-f122fafda4df	true	713	2139	1902	MeshBasicMaterial
+12	Layer_02	1844ee0d-3b3e-4631-8256-b12e311a941e	true	1513	4539	4245	MeshBasicMaterial
+13	Layer_03	bc067eb0-cf19-499a-bfda-f24e18239b9e	true	1289	3867	3567	MeshBasicMaterial
+14	Layer_04	a621a2ef-f899-43e5-8084-c550adc0aa64	true	1390	4170	3846	MeshBasicMaterial
+15	Layer_05	1ddb4054-802c-4047-80be-4982b1ef87fd	true	1372	4116	3720	MeshBasicMaterial
+16	Layer_06	cc84b47c-8792-4fd6-913f-6985f0b51c7a	true	1327	3981	3630	MeshBasicMaterial
+17	Layer_07	3316bb19-0ff4-4996-b18b-3ba12c465bff	true	1565	4695	4359	MeshBasicMaterial

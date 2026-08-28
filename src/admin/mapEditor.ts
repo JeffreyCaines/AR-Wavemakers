@@ -12,6 +12,9 @@ import {
 } from "../shared/types";
 import { getCanvasCardsMinWidth, getCanvasRowGap } from "./canvasLayout";
 import { mountMapModelBackdrop, type MapModelBackdrop } from "./mapModelBackdrop";
+import { createModelRipplesMapPreview } from "./modelRipplesMapPreview";
+import type { Layer7Edge } from "./modelRippleMasks";
+import type { ModelRipplesVisuals } from "./modelRipplesVisuals";
 import { createRipplesMapPreview, type RipplesMapPreview } from "./ripplesMapPreview";
 
 /** Image = cropped wall photo. model3d = top-down AR map mesh (same crop coord space). */
@@ -22,6 +25,8 @@ export interface PinDatum {
   label: string;
   mapX: number;
   mapY: number;
+  /** Number of cards at this pin. Shown on the pin when set. */
+  count?: number;
 }
 
 export interface MapImageOverlay {
@@ -71,6 +76,12 @@ export interface MapEditorOptions {
   ripplesShader?: MapRipplesShader;
   /** Drag on the shader canvas moves the ripple origin. */
   allowRipplesOriginDrag?: boolean;
+  /** /admin only: Layer_07 inner vs outer silhouette cutoff. */
+  layer7Edge?: Layer7Edge;
+  /** /admin only: live shader visual knobs. */
+  ripplesVisuals?: ModelRipplesVisuals;
+  /** /admin only: false hides the custom ripples overlay (3D model shader). */
+  ripplesOverlayEnabled?: boolean;
 }
 
 const MIN_SCALE = 1;
@@ -173,6 +184,9 @@ export function createMapEditor(
   setSelectedPin: (mapX: number, mapY: number) => void;
   getSelectedPinPosition: () => { mapX: number; mapY: number } | null;
   getOverlayPosition: () => { mapX: number; mapY: number } | null;
+  setRipplesLayer7Edge: (edge: Layer7Edge) => void;
+  setRipplesVisuals: (visuals: ModelRipplesVisuals) => void;
+  setRipplesOverlayEnabled: (enabled: boolean) => void;
   showCardPreview: (cardId: string | null) => void;
   destroy: () => void;
 } {
@@ -192,6 +206,9 @@ export function createMapEditor(
     allowOverlayDrag = false,
     ripplesShader,
     allowRipplesOriginDrag = false,
+    layer7Edge = "outer",
+    ripplesVisuals: initialRipplesVisuals,
+    ripplesOverlayEnabled: initialRipplesOverlayEnabled = true,
   } = options;
   const { onPinMove, onOverlayMove, onPinActivate } = callbacks;
   const useModelBackdrop = backdrop === "model3d";
@@ -320,6 +337,9 @@ export function createMapEditor(
     : null;
   let ripplesOriginDragging = false;
   let ripplesPreviewDisposed = false;
+  let ripplesLayer7Edge: Layer7Edge = layer7Edge;
+  let ripplesVisuals: ModelRipplesVisuals | undefined = initialRipplesVisuals;
+  let ripplesOverlayEnabled = initialRipplesOverlayEnabled;
 
   function cardsAtPin(pinId: string): InfoCard[] {
     if (!previewCards?.length) return [];
@@ -399,8 +419,14 @@ export function createMapEditor(
       const fitScale = Math.min(fitWidth / aspectW, fitHeight / aspectH);
       stageWidth = aspectW * fitScale;
       stageHeight = aspectH * fitScale;
-      container.style.width = `${stageWidth}px`;
-      container.style.height = `${stageHeight}px`;
+      const detailPanel = container.closest(".admin-canvas__detail");
+      const columnEl = detailPanel instanceof HTMLElement ? detailPanel : container;
+      columnEl.style.width = `${stageWidth}px`;
+      columnEl.style.height = `${stageHeight}px`;
+      if (columnEl !== container) {
+        container.style.width = "";
+        container.style.height = "";
+      }
       mapEditor.style.width = "100%";
       mapEditor.style.height = "100%";
       surface.style.width = `${stageWidth}px`;
@@ -710,16 +736,29 @@ export function createMapEditor(
     const start = (): void => {
       if (!surfaceReady) return;
       if (image && (image.naturalWidth <= 0 || image.naturalHeight <= 0)) return;
-      void createRipplesMapPreview(pinsLayer, {
-        variant: ripplesShader.variant,
-        originMapX: ripplesOrigin?.mapX ?? ripplesShader.originMapX,
-        originMapY: ripplesOrigin?.mapY ?? ripplesShader.originMapY,
-      }).then((preview) => {
+      const originMapX = ripplesOrigin?.mapX ?? ripplesShader.originMapX;
+      const originMapY = ripplesOrigin?.mapY ?? ripplesShader.originMapY;
+      const createPreview = useModelBackdrop && modelBackdrop
+        ? createModelRipplesMapPreview(pinsLayer, {
+            originMapX,
+            originMapY,
+            masks: modelBackdrop.rippleMasks,
+            edge: ripplesLayer7Edge,
+            visuals: ripplesVisuals,
+          })
+        : createRipplesMapPreview(pinsLayer, {
+            variant: ripplesShader.variant,
+            originMapX,
+            originMapY,
+          });
+      void createPreview.then((preview) => {
         if (ripplesPreviewDisposed) {
           preview.dispose();
           return;
         }
         ripplesPreview = preview;
+        if (ripplesVisuals) preview.setVisuals?.(ripplesVisuals);
+        preview.setEnabled?.(ripplesOverlayEnabled);
         if (stageWidth > 0 && stageHeight > 0) {
           preview.setSize(stageWidth, stageHeight);
         }
@@ -753,6 +792,7 @@ export function createMapEditor(
         updateStageMetrics();
         pendingRipplesMount?.();
         pendingRipplesMount = null;
+        if (!ripplesOverlayEnabled) modelBackdrop.setModelPulseLoop(true);
       })
       .catch(() => {
         if (modelBackdropDisposed) return;
@@ -1565,7 +1605,12 @@ export function createMapEditor(
     selectedPin = null;
 
     for (const pinDatum of pins) {
-      const pin = createPin(pinDatum.id, pinDatum.label, allowSelectedPinDrag && pinDatum.id === selectedId);
+      const pin = createPin(
+        pinDatum.id,
+        pinDatum.label,
+        allowSelectedPinDrag && pinDatum.id === selectedId,
+        pinDatum.count
+      );
       const display = toDisplayCoords(pinDatum.mapX, pinDatum.mapY);
       positionPin(pin, display.mapX, display.mapY);
       pinsLayer.appendChild(pin);
@@ -1600,12 +1645,15 @@ export function createMapEditor(
     });
   }
 
-  function createPin(id: string, title: string, selected: boolean): HTMLButtonElement {
+  function createPin(id: string, title: string, selected: boolean, count?: number): HTMLButtonElement {
     const pin = document.createElement("button");
     pin.type = "button";
     pin.className = pinClass ? `map-editor__pin ${pinClass}` : "map-editor__pin";
     pin.title = title;
     pin.dataset.id = id;
+    if (count != null && count > 1) {
+      pin.textContent = String(count);
+    }
     if (selected) {
       pin.classList.add("map-editor__pin--selected");
       selectedPin = pin;
@@ -1675,7 +1723,7 @@ export function createMapEditor(
 
   const onPointerDown = (event: PointerEvent): void => {
     const ripplesTarget = (event.target as HTMLElement).closest(".map-editor__ripples-canvas");
-    if (allowRipplesOriginDrag && ripplesTarget) {
+    if (allowRipplesOriginDrag && ripplesOverlayEnabled && ripplesTarget) {
       ripplesOriginDragging = true;
       ripplesPreview?.canvas.classList.add("map-editor__ripples-canvas--dragging");
       hidePreview();
@@ -1921,6 +1969,19 @@ export function createMapEditor(
       }
       if (!overlayState) return null;
       return { mapX: overlayState.mapX, mapY: overlayState.mapY };
+    },
+    setRipplesLayer7Edge(edge: Layer7Edge): void {
+      ripplesLayer7Edge = edge;
+      ripplesPreview?.setLayer7Edge?.(edge);
+    },
+    setRipplesVisuals(visuals: ModelRipplesVisuals): void {
+      ripplesVisuals = visuals;
+      ripplesPreview?.setVisuals?.(visuals);
+    },
+    setRipplesOverlayEnabled(enabled: boolean): void {
+      ripplesOverlayEnabled = enabled;
+      ripplesPreview?.setEnabled?.(enabled);
+      modelBackdrop?.setModelPulseLoop(!enabled);
     },
     showCardPreview(cardId: string | null): void {
       if (!cardId) {

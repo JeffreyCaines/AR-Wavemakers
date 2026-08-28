@@ -19,6 +19,7 @@ import {
   MAP_PULSE_ORIGIN_LNG,
   type MapPulseController,
 } from "../map/mapPulseController";
+import type { ExperienceViewOptions } from "../shared/experienceView";
 import { fetchActiveCards } from "../shared/api";
 import type { CardType, InfoCard } from "../shared/types";
 import { buildArChromeHtml, wireArChrome, type ArChromeController } from "./chromeUi";
@@ -38,14 +39,17 @@ import {
 
 const MAP_WIDTH_M = 2.2;
 const MARKER_SIZE_PX = 18;
-/** Same hit radius as /ar-preview: ~1.25× marker diameter from center. */
+/** Same hit radius as /legacy-ar-preview: ~1.25× marker diameter from center. */
 const POINT_TARGET_RADIUS_PX = (MARKER_SIZE_PX * 1.25) / 2;
 
 /**
  * World-tracking (SLAM) AR route powered by the 8th Wall engine binary.
  * Tap a surface to place the 3D map; two-finger tap recenters tracking.
  */
-export function initEighthWallArViewer(root: HTMLElement): void {
+export function initEighthWallArViewer(
+  root: HTMLElement,
+  options: ExperienceViewOptions = {}
+): () => void {
   document.documentElement.classList.add("ew-active");
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#000");
 
@@ -81,6 +85,15 @@ export function initEighthWallArViewer(root: HTMLElement): void {
   const sheetBackdrop = root.querySelector("#ar-sheet-backdrop") as HTMLElement;
   const sheetEl = root.querySelector("#ar-sheet") as HTMLElement;
   const sheetContent = root.querySelector("#ar-sheet-content") as HTMLElement;
+
+  const syncLandscapeClass = (): void => {
+    const type = window.screen?.orientation?.type;
+    const landscape = type ? type.startsWith("landscape") : window.innerWidth > window.innerHeight;
+    arApp.classList.toggle("ar-app--landscape", landscape);
+  };
+  syncLandscapeClass();
+  window.addEventListener("resize", syncLandscapeClass);
+  window.addEventListener("orientationchange", syncLandscapeClass);
 
   window.THREE = THREE;
 
@@ -129,7 +142,9 @@ export function initEighthWallArViewer(root: HTMLElement): void {
       detailSheet.show(card);
     },
     onHome: () => {
-      window.location.assign("/");
+      const steps = detailSheet.isOpen() ? 2 : 1;
+      if (options.onExit) options.onExit(steps);
+      else window.location.assign("/");
     },
     onReposition: () => {
       removePlacedMap();
@@ -266,14 +281,18 @@ export function initEighthWallArViewer(root: HTMLElement): void {
       if (disposed) return;
 
       startPipeline(XR8);
+      if (disposed) return;
       setPlacementUiVisible(true);
+      options.onReady?.();
     } catch (err) {
+      if (disposed) return;
       console.error(err);
       const footer = placeEl.querySelector(".ew-place__footer");
       if (footer) {
         footer.textContent =
           err instanceof Error ? err.message : "Could not start 8th Wall AR.";
       }
+      options.onFailed?.();
     }
   }
 
@@ -431,19 +450,43 @@ export function initEighthWallArViewer(root: HTMLElement): void {
     }
   }
 
+  const onPopState = (): void => {
+    if (detailSheet.isOpen()) {
+      detailSheet.dismissFromHistory();
+      activeCardTracker?.resetSheetTimer();
+    }
+  };
+  window.addEventListener("popstate", onPopState);
+
   const observer = new MutationObserver(() => {
     if (!document.body.contains(root) && !disposed) {
-      disposed = true;
-      document.documentElement.classList.remove("ew-active", "ar-sheet-open");
-      observer.disconnect();
-      try {
-        window.XR8?.stop();
-      } catch {
-        /* ignore */
-      }
+      dispose();
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  function dispose(): void {
+    if (disposed) return;
+    disposed = true;
+    observer.disconnect();
+    window.removeEventListener("resize", syncLandscapeClass);
+    window.removeEventListener("orientationchange", syncLandscapeClass);
+    window.removeEventListener("popstate", onPopState);
+    activeCardTracker?.resetSheetTimer();
+    detailSheet.destroy();
+    mapPulse?.dispose();
+    mapPulse = null;
+    cssRenderer?.domElement.remove();
+    cssRenderer = null;
+    document.documentElement.classList.remove("ew-active", "ar-sheet-open");
+    try {
+      window.XR8?.stop();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return dispose;
 }
 
 function fullWindowCanvasModule(canvas: HTMLCanvasElement): Xr8PipelineModule {

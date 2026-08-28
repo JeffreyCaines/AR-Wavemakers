@@ -37,16 +37,36 @@ Commit both `map-reference.jpg` and `map-target.mind` so Netlify serves them wit
 the static build. Or compile the target before deploy with the command above (the
 reference image must still be committed).
 
-## 4. Ripples assets (`assets/`)
+## 4. Ripples masks (`assets/`)
 
-Required for the water ripples reveal on `/ar` and `/ar-preview`, plus admin previews:
+Required for the water ripples reveal on `/ar` and `/legacy-ar-preview`. The viewer
+shader (`src/ar/ripplesEffect.ts`) loads both at startup:
 
 | File | Role |
 |------|------|
-| `assets/ripples.gif` | Normal ripples preview (admin) |
-| `assets/ripples-fade.gif` | Fade-out ripples preview (admin) |
-| `assets/ripple_mask.png` | Water mask for normal ripples (viewer shader) |
-| `assets/ripple_mask_fade.png` | Water mask for fade-out ripples (viewer shader) |
+| `assets/ripple_mask.png` | Water mask for the looping ripples variant |
+| `assets/ripple_mask_fade.png` | Water mask for the fade-out ripples variant |
 
-Masks are sized to the full reference image (4032×3024). Keep them in sync when you
-replace the map photo.
+Masks are sized to the full reference image (4032×3024), matching `RIPPLE_MASK_WIDTH` /
+`RIPPLE_MASK_HEIGHT` in `src/shared/ripplesSim.ts`. Keep them in sync when you replace
+the map photo.
+
+The admin previews no longer use GIFs. `/admin` renders the 3D map, and its ripples
+overlay is generated at runtime from the model's water layers
+(`src/admin/modelRippleMasks.ts`), so nothing extra needs to live here for it.
+
+## 5. Netlify config files
+
+These are plain text files served as-is by Netlify. They are not assets, but they must
+stay in `public/` so Vite copies them into `dist/`.
+
+| File | Role |
+|------|------|
+| `_redirects` | SPA fallback: rewrites unknown paths to `/index.html` with a 200 |
+| `_headers` | Security headers, including a Report-Only CSP for the AR routes |
+
+## 6. `external/` (generated, gitignored)
+
+`npm run sync-xr` copies `@8thwall/engine-binary` here so `/external/xr/xr.js` is served
+as JavaScript rather than the SPA fallback HTML. It runs automatically on `postinstall`,
+`predev`, and `prebuild`. Re-run it manually if the folder is missing.

@@ -1,12 +1,17 @@
 import * as THREE from "three";
 import { createRipplesEffect, type RipplesEffect } from "../ar/ripplesEffect";
 import { MAP_ADMIN_CROP, type RipplesVariant } from "../shared/types";
+import type { Layer7Edge } from "./modelRippleMasks";
+import type { ModelRipplesVisuals } from "./modelRipplesVisuals";
 
 export interface RipplesMapPreview {
   canvas: HTMLCanvasElement;
   setOrigin: (mapX: number, mapY: number) => void;
   setVariant: (variant: RipplesVariant) => void;
   setSize: (width: number, height: number) => void;
+  setLayer7Edge?: (edge: Layer7Edge) => void;
+  setVisuals?: (visuals: ModelRipplesVisuals) => void;
+  setEnabled?: (enabled: boolean) => void;
   dispose: () => void;
 }
 

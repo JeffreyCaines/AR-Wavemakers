@@ -123,7 +123,7 @@ export function projectLatLng(
 export function describeProjection(points: readonly CalibrationPoint[]): string {
   const n = points.filter(isFinitePoint).length;
   if (n >= MIN_TPS_POINTS) {
-    return `Thin-plate spline from ${n} calibration points (longitude unwrap).`;
+    return `Thin-plate spline | ${n} calibration points (longitude unwrap).`;
   }
   if (n >= 3) return `Affine fit from ${n} calibration points (longitude unwrap).`;
   if (n === 2) return "Linear fit from 2 calibration points.";

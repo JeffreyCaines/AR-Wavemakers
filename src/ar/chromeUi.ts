@@ -15,7 +15,7 @@ export type ArChromeCallbacks = {
   onFiltersChange: () => void;
   onSelectCard: (card: InfoCard) => void;
   onHome: () => void;
-  /** Present when reposition control is enabled (e.g. /8th-ar). */
+  /** Present when reposition control is enabled (at-home AR). */
   onReposition?: () => void;
   getCards: () => readonly InfoCard[];
 };

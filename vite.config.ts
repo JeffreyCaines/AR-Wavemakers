@@ -98,12 +98,15 @@ export default defineConfig({
   build: {
     // The AR route legitimately ships MindAR (TensorFlow.js + Three.js), which is
     // large and cannot be meaningfully split further. Route-level dynamic imports
-    // (see src/main.ts) already keep /admin light, so raise the warning threshold.
+    // (see src/main.ts) already keep / light, so raise the warning threshold.
     chunkSizeWarningLimit: 3000,
-    rollupOptions: {
-      input: {
-        main: "index.html",
-        shareStory: "share-story.html",
+    modulePreload: {
+      resolveDependencies: (filename, deps) => {
+        const normalized = filename.replace(/\\/g, "/");
+        if (normalized.endsWith(".html")) {
+          return [];
+        }
+        return deps;
       },
     },
   },

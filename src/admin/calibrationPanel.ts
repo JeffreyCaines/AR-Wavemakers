@@ -32,7 +32,7 @@ export function createCalibrationPanel(
           Calibration points
         </button>
         <button type="button" class="admin-form__tab" role="tab" aria-selected="false" data-calibration-tab="ripples">
-          Ripples anchor
+          Ripples config
         </button>
       </div>
       <div id="calibration-tab-panel" class="calibration-tab-panel"></div>
@@ -41,6 +41,37 @@ export function createCalibrationPanel(
 
   const tabPanelHost = sideHost.querySelector("#calibration-tab-panel") as HTMLElement;
   const tabButtons = sideHost.querySelectorAll<HTMLButtonElement>("[data-calibration-tab]");
+  const cardsView = sideHost.closest(".admin-canvas__cards-view");
+  const infoHost = cardsView?.querySelector(".calibration-info") as HTMLElement | null;
+  const infoBtn = cardsView?.querySelector("#calibration-info-btn") as HTMLButtonElement | null;
+  const infoTip = cardsView?.querySelector("#calibration-info-tip") as HTMLElement | null;
+
+  const setInfoOpen = (open: boolean): void => {
+    if (!infoBtn || !infoTip) return;
+    infoTip.hidden = !open;
+    infoBtn.setAttribute("aria-expanded", String(open));
+  };
+
+  const onInfoClick = (event: Event): void => {
+    event.stopPropagation();
+    setInfoOpen(Boolean(infoTip?.hidden));
+  };
+
+  const onDocClick = (event: MouseEvent): void => {
+    if (!infoTip || infoTip.hidden) return;
+    const target = event.target as Node;
+    if (infoBtn?.contains(target) || infoTip.contains(target)) return;
+    setInfoOpen(false);
+  };
+
+  const onInfoKeydown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") setInfoOpen(false);
+  };
+
+  infoBtn?.addEventListener("click", onInfoClick);
+  document.addEventListener("click", onDocClick);
+  document.addEventListener("keydown", onInfoKeydown);
+  if (infoTip) infoTip.textContent = describeProjection(calibrationPoints);
 
   const setActiveTab = (tab: CalibrationTab): void => {
     activeTab = tab;
@@ -49,6 +80,8 @@ export function createCalibrationPanel(
       button.classList.toggle("admin-form__tab--active", selected);
       button.setAttribute("aria-selected", String(selected));
     });
+    if (infoHost) infoHost.hidden = tab === "ripples";
+    setInfoOpen(false);
     pointsPanel?.destroy();
     ripplesPanel?.destroy();
     pointsPanel = null;
@@ -70,7 +103,7 @@ export function createCalibrationPanel(
         ripplesAnchor = anchor;
         callbacks.onRipplesChange(anchor);
       },
-    }, backdrop);
+    });
   };
 
   tabButtons.forEach((button) => {
@@ -93,6 +126,11 @@ export function createCalibrationPanel(
       }
     },
     destroy: () => {
+      infoBtn?.removeEventListener("click", onInfoClick);
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onInfoKeydown);
+      setInfoOpen(false);
+      if (infoHost) infoHost.hidden = false;
       pointsPanel?.destroy();
       ripplesPanel?.destroy();
     },
@@ -123,7 +161,6 @@ function createCalibrationPointsPanel(
         to its true spot (or nudge with arrow keys / WASD; hold Shift for fine steps),
         then save. Future geocoding uses that fit.
       </p>
-      <p id="calibration-status" class="admin-muted calibration__status"></p>
       <div class="calibration__add">
         <input type="text" id="calibration-address" placeholder="City, Country" />
         <button type="button" id="calibration-add-btn" class="admin-btn--pill">Add point</button>
@@ -142,7 +179,6 @@ function createCalibrationPointsPanel(
   `;
 
   const listEl = sideHost.querySelector(".calibration__list") as HTMLUListElement;
-  const statusEl = sideHost.querySelector("#calibration-status") as HTMLElement;
   const addressInput = sideHost.querySelector("#calibration-address") as HTMLInputElement;
   const addBtn = sideHost.querySelector("#calibration-add-btn") as HTMLButtonElement;
   const saveBtn = sideHost.querySelector("#calibration-save-btn") as HTMLButtonElement;
@@ -179,8 +215,9 @@ function createCalibrationPointsPanel(
   });
 
   const refreshStatus = (): void => {
-    statusEl.textContent = describeProjection(points);
     helpEl.hidden = points.length >= 2;
+    const tip = sideHost.closest(".admin-canvas__cards-view")?.querySelector("#calibration-info-tip");
+    if (tip) tip.textContent = describeProjection(points);
   };
 
   const updateDeleteAction = (): void => {

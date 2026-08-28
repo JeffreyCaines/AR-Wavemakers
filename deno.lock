@@ -11,6 +11,7 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@8thwall/engine-binary@1",
         "npm:@netlify/blobs@^10.7.9",
         "npm:@types/three@0.160.0",
         "npm:mind-ar@^1.2.5",

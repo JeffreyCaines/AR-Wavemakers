@@ -1,10 +1,19 @@
 import * as THREE from "three";
-import { loadArMapModel } from "../map/loadArMapModel";
+import { loadArMapModel, landLocalToRootLocal, latLngToLandLocal, loadLatLongDistortion } from "../map/loadArMapModel";
 import {
   applyMapDesktopAppearance,
   loadDesktopEnvironmentMap,
 } from "../map/mapDesktopAppearance";
+import {
+  createMapPulseController,
+  MAP_PULSE_ORIGIN_LAT,
+  MAP_PULSE_ORIGIN_LNG,
+  type MapPulseController,
+} from "../map/mapPulseController";
 import { MAP_ADMIN_CROP } from "../shared/types";
+import { bakeLayer7RippleMasks, type Layer7RippleMasks } from "./modelRippleMasks";
+
+const MODEL_PULSE_REPEAT_DELAY_MS = 1500;
 
 export type MapModelView = {
   viewportWidth: number;
@@ -27,6 +36,10 @@ export type MapModelBackdrop = {
    * the CSS pan/zoom (same cost model as /map-viewer).
    */
   syncView: (view: MapModelView) => void;
+  /** Water-layer + land masks for the /admin ripples shader. */
+  rippleMasks: Layer7RippleMasks;
+  /** Play the 3D model pulse shader on a loop, or hide it. */
+  setModelPulseLoop: (enabled: boolean) => void;
   /** Detach from the current host; keep the shared GPU resources warm. */
   dispose: () => void;
 };
@@ -36,6 +49,8 @@ type SharedBackdrop = {
   aspectWidth: number;
   aspectHeight: number;
   syncView: (view: MapModelView) => void;
+  rippleMasks: Layer7RippleMasks;
+  setModelPulseLoop: (enabled: boolean) => void;
   retainers: number;
 };
 
@@ -108,11 +123,136 @@ async function createSharedBackdrop(): Promise<SharedBackdrop> {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
 
+  const rippleMasks = bakeLayer7RippleMasks(model.root, pinBounds);
+
   let lastBufferW = 0;
   let lastBufferH = 0;
 
   const render = (): void => {
     renderer.render(scene, camera);
+  };
+
+  let pulse: MapPulseController | null = null;
+  let pulseRoot: THREE.Object3D | null = null;
+  let pulseWanted = false;
+  let pulseLooping = false;
+  let pulseRepeatTimer = 0;
+  let pulseRenderRaf = 0;
+  let pulseSetup: Promise<void> | null = null;
+
+  const stopPulseRenderLoop = (): void => {
+    if (pulseRenderRaf) {
+      cancelAnimationFrame(pulseRenderRaf);
+      pulseRenderRaf = 0;
+    }
+  };
+
+  const startPulseRenderLoop = (): void => {
+    stopPulseRenderLoop();
+    const tick = (): void => {
+      if (!pulseLooping) return;
+      render();
+      pulseRenderRaf = requestAnimationFrame(tick);
+    };
+    pulseRenderRaf = requestAnimationFrame(tick);
+  };
+
+  const stopModelPulseLoop = (): void => {
+    pulseWanted = false;
+    pulseLooping = false;
+    window.clearTimeout(pulseRepeatTimer);
+    pulseRepeatTimer = 0;
+    stopPulseRenderLoop();
+    pulse?.resetPulse();
+    if (pulseRoot) pulseRoot.visible = false;
+    render();
+  };
+
+  const playPulseCycle = (): void => {
+    if (!pulseWanted || !pulse) return;
+    pulse.startPulse(
+      undefined,
+      () => {
+        if (!pulseWanted) return;
+        pulseRepeatTimer = window.setTimeout(() => {
+          playPulseCycle();
+        }, MODEL_PULSE_REPEAT_DELAY_MS);
+      },
+      true
+    );
+  };
+
+  const startModelPulseLoop = (): void => {
+    if (!pulse || !pulseRoot) return;
+    window.clearTimeout(pulseRepeatTimer);
+    pulseRepeatTimer = 0;
+    pulseLooping = true;
+    pulseRoot.visible = true;
+    playPulseCycle();
+    startPulseRenderLoop();
+  };
+
+  const ensurePulse = (): Promise<void> => {
+    if (pulse) return Promise.resolve();
+    if (pulseSetup) return pulseSetup;
+    pulseSetup = (async () => {
+      const overlay = model.root.clone(true);
+      overlay.name = "ar-map-pulse-overlay";
+      overlay.position.set(0, 0, 0);
+      overlay.rotation.set(0, 0, 0);
+      overlay.scale.set(1, 1, 1);
+      overlay.visible = false;
+      overlay.traverse((obj) => {
+        obj.raycast = () => undefined;
+      });
+      model.root.add(overlay);
+      try {
+        const controller = await createMapPulseController(overlay);
+        model.root.updateMatrixWorld(true);
+        const size = model.bounds.getSize(new THREE.Vector3());
+        const fit = Math.max(size.x, size.z);
+        controller.setPulseScale(fit * 0.55);
+        if (model.land && model.landGeomBounds) {
+          const distortion = await loadLatLongDistortion().catch(() => null);
+          const landLocal = latLngToLandLocal(
+            MAP_PULSE_ORIGIN_LAT,
+            MAP_PULSE_ORIGIN_LNG,
+            model.landGeomBounds,
+            distortion
+          );
+          const rootLocal = landLocalToRootLocal(model.land, landLocal, model.root);
+          controller.setCenterWorld(model.root.localToWorld(rootLocal));
+        } else {
+          controller.setCenterWorld(model.root.getWorldPosition(new THREE.Vector3()));
+        }
+        pulseRoot = overlay;
+        pulse = controller;
+      } catch (error) {
+        overlay.removeFromParent();
+        throw error;
+      }
+    })()
+      .catch((error) => {
+        pulseSetup = null;
+        throw error;
+      });
+    return pulseSetup;
+  };
+
+  const setModelPulseLoop = (enabled: boolean): void => {
+    if (!enabled) {
+      stopModelPulseLoop();
+      return;
+    }
+    pulseWanted = true;
+    void ensurePulse()
+      .then(() => {
+        if (!pulseWanted) return;
+        startModelPulseLoop();
+      })
+      .catch((error) => {
+        console.warn("admin model pulse setup failed", error);
+      });
   };
 
   const syncView = (view: MapModelView): void => {
@@ -175,6 +315,8 @@ async function createSharedBackdrop(): Promise<SharedBackdrop> {
     aspectHeight,
     retainers: 0,
     syncView,
+    rippleMasks,
+    setModelPulseLoop,
   };
 }
 
@@ -194,6 +336,14 @@ function getSharedBackdrop(): Promise<SharedBackdrop> {
   return sharedPromise;
 }
 
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    shared?.setModelPulseLoop(false);
+    shared = null;
+    sharedPromise = null;
+  });
+}
+
 /**
  * Top-down orthographic view of the AR map model.
  * Canvas sits on the viewport (not inside the CSS-scaled stage). Pan/zoom move
@@ -210,7 +360,9 @@ export async function mountMapModelBackdrop(
       canvas: backdrop.canvas,
       aspectWidth: backdrop.aspectWidth,
       aspectHeight: backdrop.aspectHeight,
+      rippleMasks: backdrop.rippleMasks,
       syncView: () => undefined,
+      setModelPulseLoop: () => undefined,
       dispose: () => undefined,
     };
   }
@@ -222,8 +374,11 @@ export async function mountMapModelBackdrop(
     canvas: backdrop.canvas,
     aspectWidth: backdrop.aspectWidth,
     aspectHeight: backdrop.aspectHeight,
+    rippleMasks: backdrop.rippleMasks,
     syncView: backdrop.syncView,
+    setModelPulseLoop: backdrop.setModelPulseLoop,
     dispose(): void {
+      backdrop.setModelPulseLoop(false);
       backdrop.retainers = Math.max(0, backdrop.retainers - 1);
       if (backdrop.canvas.parentElement === host) {
         backdrop.canvas.remove();

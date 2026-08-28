@@ -74,6 +74,7 @@ html.ar-preview-active body {
     0 20px 60px rgba(15, 23, 42, 0.15);
   overflow: hidden;
   isolation: isolate;
+  transform: translateZ(0);
   background: #000;
   max-width: 100%;
   max-height: 100%;
@@ -175,4 +176,62 @@ html.ar-preview-active body {
 
 .ar-sim-device .ar-app--landscape .ar-sheet__body {
   padding: 1rem 1.25rem 1.25rem;
+}
+
+/* Keep chrome inside the phone frame instead of the desktop viewport. */
+.ar-sim-device .ar-chrome {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.ar-sim-device .ar-chrome__title,
+.ar-sim-device .ar-chrome__results,
+.ar-sim-device .ar-chrome__filter-screen,
+.ar-sim-device .ar-chrome__type-row {
+  position: absolute;
+  left: 0;
+  width: 100%;
+}
+
+.ar-sim-device .ar-chrome__title {
+  top: 0;
+  height: 50px;
+  pointer-events: all;
+}
+
+.ar-sim-device .ar-chrome__results,
+.ar-sim-device .ar-chrome__filter-screen {
+  top: 50px;
+  max-height: calc(100% - 50px);
+  min-height: calc(100% - 50px);
+}
+
+.ar-sim-device .ar-chrome__filters {
+  max-height: calc(100% - 50px);
+}
+
+.ar-sim-device .ar-chrome__type-row {
+  top: 0;
+  margin-top: 62px;
+}
+
+.ar-sim-device .ar-chrome__view-items {
+  position: absolute;
+  top: auto;
+  bottom: 1.25rem;
+  min-width: 60%;
+  min-height: 2.75rem;
+}
+
+.ar-sim-device .ar-chrome__filter-count {
+  min-width: 1.15rem;
+  margin-left: 0.25rem;
+  margin-right: 0.25rem;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+
+.ar-sim-device .ar-chrome__filter-props--active {
+  padding-bottom: 5rem;
 }

@@ -1,4 +1,5 @@
 import { getRipplesSimDurationMs, getRipplesOriginMapXY } from "./ripplesSim";
+import type { HomographFieldMap } from "./homoglyphs";
 
 export type CardType = "individual" | "organization";
 
@@ -78,6 +79,8 @@ export interface GeocodeResult {
 
 export type SubmissionType = "legacy" | "individual" | "organization";
 
+export type { HomoglyphSubstitution, HomographFieldMap } from "./homoglyphs";
+
 /** Shared display fields used by admin list/approve for every submission shape. */
 export interface StorySubmissionCore {
   id: string;
@@ -91,6 +94,10 @@ export interface StorySubmissionCore {
   contactEmail?: string;
   imageUrl?: string;
   linkUrl?: string;
+  /** True when a URL or email in the original input had IDN homograph or homoglyph characters. */
+  hadHomograph?: boolean;
+  /** Per-field Latin replacements applied to homoglyph input. Original glyphs are not stored in field values. */
+  homographFields?: HomographFieldMap;
 }
 
 export interface IndividualSubmissionFields {

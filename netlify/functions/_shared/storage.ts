@@ -14,151 +14,37 @@ function useLocalStorage(): boolean {
   return process.env.NETLIFY_DEV === "true";
 }
 
-export async function loadCards(): Promise<InfoCard[]> {
-  if (useLocalStorage()) {
-    return loadLocalCards();
+/**
+ * Thrown when the backing store could not be read or written. Callers must never
+ * treat this as "no data": doing so is what allows an outage to silently wipe the
+ * admin accounts or overwrite live cards with the seed set.
+ */
+export class StoreUnavailableError extends Error {
+  constructor(key: string) {
+    super(`Storage unavailable for ${key}`);
+    this.name = "StoreUnavailableError";
   }
-
-  try {
-    const { getStore } = await import("@netlify/blobs");
-    const store = getStore(STORE_NAME);
-    const data = await store.get(BLOB_KEY, { type: "json" });
-    if (Array.isArray(data)) {
-      return data as InfoCard[];
-    }
-    // First run on Netlify: persist the seed set so admin edits have a base.
-    await store.setJSON(BLOB_KEY, SEED_CARDS);
-    return [...SEED_CARDS];
-  } catch {
-    // Blobs unavailable (e.g. plain `vite dev`); fall back to a local file.
-  }
-
-  return loadLocalCards();
 }
 
-export async function saveCards(cards: InfoCard[]): Promise<void> {
-  if (useLocalStorage()) {
-    await saveLocalCards(cards);
-    return;
-  }
+/** `value: null` means the key is genuinely absent, distinct from a failed read. */
+export type LoadResult<T> = { ok: true; value: T | null } | { ok: false };
 
-  try {
-    const { getStore } = await import("@netlify/blobs");
-    const store = getStore(STORE_NAME);
-    await store.setJSON(BLOB_KEY, cards);
-    return;
-  } catch {
-    // Fall through to local file storage during dev.
-  }
-
-  await saveLocalCards(cards);
-}
-
-async function loadLocalCards(): Promise<InfoCard[]> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-  const filePath = path.join(process.cwd(), "data", "cards.json");
-
-  try {
-    const raw = await fs.readFile(filePath, "utf-8");
-    const parsed = JSON.parse(raw) as InfoCard[];
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
-  } catch {
-    // Seed on first run.
-  }
-
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(SEED_CARDS, null, 2), "utf-8");
-  return [...SEED_CARDS];
-}
-
-async function saveLocalCards(cards: InfoCard[]): Promise<void> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-  const filePath = path.join(process.cwd(), "data", "cards.json");
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(cards, null, 2), "utf-8");
-}
-
-export async function loadCalibration(): Promise<CalibrationPoint[]> {
-  if (useLocalStorage()) {
-    return loadLocalJson<CalibrationPoint[]>("calibration.json", []);
-  }
-
-  try {
-    const { getStore } = await import("@netlify/blobs");
-    const store = getStore(STORE_NAME);
-    const data = await store.get(CALIBRATION_KEY, { type: "json" });
-    if (Array.isArray(data)) return data as CalibrationPoint[];
-    return [];
-  } catch {
-    // Blobs unavailable (e.g. plain `vite dev`); fall back to a local file.
-  }
-  return loadLocalJson<CalibrationPoint[]>("calibration.json", []);
-}
-
-export async function saveCalibration(points: CalibrationPoint[]): Promise<void> {
-  if (useLocalStorage()) {
-    await saveLocalJson("calibration.json", points);
-    return;
-  }
-
-  try {
-    const { getStore } = await import("@netlify/blobs");
-    const store = getStore(STORE_NAME);
-    await store.setJSON(CALIBRATION_KEY, points);
-    return;
-  } catch {
-    // Fall through to local file storage during dev.
-  }
-  await saveLocalJson("calibration.json", points);
-}
-
-export async function loadRipplesAnchor(): Promise<RipplesAnchor> {
-  if (useLocalStorage()) {
-    return normalizeRipplesAnchor(await loadLocalJson("ripples-anchor.json", DEFAULT_RIPPLES_ANCHOR));
-  }
-
-  try {
-    const { getStore } = await import("@netlify/blobs");
-    const store = getStore(STORE_NAME);
-    const data = await store.get(RIPPLES_ANCHOR_KEY, { type: "json" });
-    return normalizeRipplesAnchor(data);
-  } catch {
-    // Blobs unavailable (e.g. plain `vite dev`); fall back to a local file.
-  }
-  return normalizeRipplesAnchor(await loadLocalJson("ripples-anchor.json", DEFAULT_RIPPLES_ANCHOR));
-}
-
-export async function saveRipplesAnchor(anchor: RipplesAnchor): Promise<void> {
-  const sanitized = normalizeRipplesAnchor(anchor);
-  if (useLocalStorage()) {
-    await saveLocalJson("ripples-anchor.json", sanitized);
-    return;
-  }
-
-  try {
-    const { getStore } = await import("@netlify/blobs");
-    const store = getStore(STORE_NAME);
-    await store.setJSON(RIPPLES_ANCHOR_KEY, sanitized);
-    return;
-  } catch {
-    // Fall through to local file storage during dev.
-  }
-  await saveLocalJson("ripples-anchor.json", sanitized);
-}
-
-async function loadLocalJson<T>(fileName: string, fallback: T): Promise<T> {
+async function loadLocalJsonResult<T>(fileName: string): Promise<LoadResult<T>> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const filePath = path.join(process.cwd(), "data", fileName);
+  let raw: string;
   try {
-    const raw = await fs.readFile(filePath, "utf-8");
-    return JSON.parse(raw) as T;
+    raw = await fs.readFile(filePath, "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, value: null };
+    return { ok: false };
+  }
+  try {
+    return { ok: true, value: JSON.parse(raw) as T };
   } catch {
-    return fallback;
+    // Corrupt file: fail closed rather than reporting an empty store.
+    return { ok: false };
   }
 }
 
@@ -170,38 +56,103 @@ async function saveLocalJson(fileName: string, value: unknown): Promise<void> {
   await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf-8");
 }
 
-export async function loadSubmissions(): Promise<StorySubmission[]> {
+export async function loadStoredJsonResult<T>(key: string): Promise<LoadResult<T>> {
   if (useLocalStorage()) {
-    return loadLocalJson<StorySubmission[]>("submissions.json", []);
+    return loadLocalJsonResult<T>(key);
   }
 
   try {
     const { getStore } = await import("@netlify/blobs");
     const store = getStore(STORE_NAME);
-    const data = await store.get(SUBMISSIONS_KEY, { type: "json" });
-    if (Array.isArray(data)) return data as StorySubmission[];
-    return [];
+    const data = await store.get(key, { type: "json" });
+    return { ok: true, value: data === undefined ? null : (data as T | null) };
   } catch {
-    // Blobs unavailable (e.g. plain `vite dev`); fall back to a local file.
+    // Blobs unavailable (e.g. plain `vite dev`); a local file may still hold the data.
   }
-  return loadLocalJson<StorySubmission[]>("submissions.json", []);
+
+  const local = await loadLocalJsonResult<T>(key);
+  // No local copy either: this is a read failure, not an empty store.
+  if (local.ok && local.value === null) return { ok: false };
+  return local;
 }
 
-export async function saveSubmissions(submissions: StorySubmission[]): Promise<void> {
+export async function loadStoredJson<T>(key: string, fallback: T): Promise<T> {
+  const result = await loadStoredJsonResult<T>(key);
+  if (!result.ok) throw new StoreUnavailableError(key);
+  return result.value ?? fallback;
+}
+
+export async function saveStoredJson(key: string, value: unknown): Promise<void> {
   if (useLocalStorage()) {
-    await saveLocalJson("submissions.json", submissions);
+    await saveLocalJson(key, value);
     return;
   }
 
   try {
     const { getStore } = await import("@netlify/blobs");
     const store = getStore(STORE_NAME);
-    await store.setJSON(SUBMISSIONS_KEY, submissions);
+    await store.setJSON(key, value);
     return;
   } catch {
     // Fall through to local file storage during dev.
   }
-  await saveLocalJson("submissions.json", submissions);
+
+  try {
+    await saveLocalJson(key, value);
+  } catch {
+    // Netlify's function filesystem is read-only, so this only succeeds in dev.
+    throw new StoreUnavailableError(key);
+  }
+}
+
+/**
+ * Reads a key that must hold an array. Anything else stored under it is treated
+ * as a failure so the caller cannot overwrite unrecognised data with an empty
+ * list or the seed set.
+ */
+async function loadStoredArray<T>(key: string): Promise<T[] | null> {
+  const result = await loadStoredJsonResult<unknown>(key);
+  if (!result.ok) throw new StoreUnavailableError(key);
+  if (result.value === null) return null;
+  if (!Array.isArray(result.value)) throw new StoreUnavailableError(key);
+  return result.value as T[];
+}
+
+export async function loadCards(): Promise<InfoCard[]> {
+  const cards = await loadStoredArray<InfoCard>(BLOB_KEY);
+  if (cards) return cards;
+  // First run: persist the seed set so admin edits have a base.
+  await saveStoredJson(BLOB_KEY, SEED_CARDS);
+  return [...SEED_CARDS];
+}
+
+export async function saveCards(cards: InfoCard[]): Promise<void> {
+  await saveStoredJson(BLOB_KEY, cards);
+}
+
+export async function loadCalibration(): Promise<CalibrationPoint[]> {
+  return (await loadStoredArray<CalibrationPoint>(CALIBRATION_KEY)) ?? [];
+}
+
+export async function saveCalibration(points: CalibrationPoint[]): Promise<void> {
+  await saveStoredJson(CALIBRATION_KEY, points);
+}
+
+export async function loadRipplesAnchor(): Promise<RipplesAnchor> {
+  const data = await loadStoredJson<unknown>(RIPPLES_ANCHOR_KEY, DEFAULT_RIPPLES_ANCHOR);
+  return normalizeRipplesAnchor(data);
+}
+
+export async function saveRipplesAnchor(anchor: RipplesAnchor): Promise<void> {
+  await saveStoredJson(RIPPLES_ANCHOR_KEY, normalizeRipplesAnchor(anchor));
+}
+
+export async function loadSubmissions(): Promise<StorySubmission[]> {
+  return (await loadStoredArray<StorySubmission>(SUBMISSIONS_KEY)) ?? [];
+}
+
+export async function saveSubmissions(submissions: StorySubmission[]): Promise<void> {
+  await saveStoredJson(SUBMISSIONS_KEY, submissions);
 }
 
 function isGeocodeCache(value: unknown): value is Record<string, GeocodeResult> {
@@ -210,39 +161,12 @@ function isGeocodeCache(value: unknown): value is Record<string, GeocodeResult> 
 }
 
 export async function loadGeocodeCache(): Promise<Record<string, GeocodeResult>> {
-  if (useLocalStorage()) {
-    const data = await loadLocalJson<unknown>("geocode-cache.json", {});
-    return isGeocodeCache(data) ? data : {};
-  }
-
-  try {
-    const { getStore } = await import("@netlify/blobs");
-    const store = getStore(STORE_NAME);
-    const data = await store.get(GEOCODE_CACHE_KEY, { type: "json" });
-    if (isGeocodeCache(data)) return data;
-    return {};
-  } catch {
-    // Blobs unavailable (e.g. plain `vite dev`); fall back to a local file.
-  }
-  const data = await loadLocalJson<unknown>("geocode-cache.json", {});
+  const data = await loadStoredJson<unknown>(GEOCODE_CACHE_KEY, {});
   return isGeocodeCache(data) ? data : {};
 }
 
 export async function saveGeocodeCache(cache: Record<string, GeocodeResult>): Promise<void> {
-  if (useLocalStorage()) {
-    await saveLocalJson("geocode-cache.json", cache);
-    return;
-  }
-
-  try {
-    const { getStore } = await import("@netlify/blobs");
-    const store = getStore(STORE_NAME);
-    await store.setJSON(GEOCODE_CACHE_KEY, cache);
-    return;
-  } catch {
-    // Fall through to local file storage during dev.
-  }
-  await saveLocalJson("geocode-cache.json", cache);
+  await saveStoredJson(GEOCODE_CACHE_KEY, cache);
 }
 
 export type UploadMeta = {
@@ -260,6 +184,34 @@ export function getMaxUploadBytes(): number {
 
 export function isAllowedUploadContentType(contentType: string): boolean {
   return ALLOWED_UPLOAD_TYPES.has(contentType);
+}
+
+/**
+ * Identify an image from its leading bytes. The client-declared content type is
+ * never trusted: whatever this returns is what gets stored and served back.
+ */
+export function sniffImageType(bytes: Uint8Array): string | null {
+  if (bytes.length < 12) return null;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) {
+    return "image/gif";
+  }
+  const isRiff = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46;
+  const isWebp = bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+  if (isRiff && isWebp) return "image/webp";
+  return null;
 }
 
 async function saveLocalUpload(id: string, bytes: Uint8Array, contentType: string): Promise<void> {
@@ -338,35 +290,24 @@ export async function loadUpload(
   return loadLocalUpload(id);
 }
 
-export function isAuthorized(headers: Headers): boolean {
-  const password = process.env.ADMIN_PASSWORD;
-  if (!password) {
-    // No password configured: only permit writes during local netlify dev.
-    return process.env.NETLIFY_DEV === "true";
-  }
-  const authHeader = headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) return false;
-  return timingSafeEqual(authHeader.slice(7), password);
-}
-
-/** Constant-time string comparison to avoid leaking the password via timing. */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return mismatch === 0;
-}
-
 export function unauthorized(): Response {
   return jsonResponse({ error: "Unauthorized" }, 401);
+}
+
+export function forbidden(message = "Forbidden"): Response {
+  return jsonResponse({ error: message }, 403);
 }
 
 export function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      // API payloads include session tokens and admin-only data; never let a
+      // browser or intermediary cache them.
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
   });
 }
 

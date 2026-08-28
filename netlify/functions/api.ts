@@ -2,10 +2,13 @@ import type { Config, Context } from "@netlify/functions";
 import type { CalibrationPoint, InfoCard, RipplesAnchor, StorySubmission } from "../../src/shared/types";
 import { normalizeRipplesAnchor } from "../../src/shared/ripplesAnchor";
 import { sanitizeAnyStorySubmissionInput, infoCardPayloadFromSubmission } from "../../src/shared/sanitizeGetNoticed";
+import { handleAdmins, handleAuth } from "./_shared/adminApi";
+import { clientIp, requireAdmin } from "./_shared/adminStore";
+import { consume, tooManyRequests } from "./_shared/rateLimit";
+import { sanitizeCardPatch, sanitizeNewCard } from "./_shared/sanitizeCard";
 import {
   getMaxUploadBytes,
   isAllowedUploadContentType,
-  isAuthorized,
   jsonResponse,
   loadCalibration,
   loadCards,
@@ -20,7 +23,8 @@ import {
   saveRipplesAnchor,
   saveSubmissions,
   saveUpload,
-  unauthorized,
+  sniffImageType,
+  StoreUnavailableError,
 } from "./_shared/storage";
 
 const DEFAULT_GEOCODER_URL = "https://nominatim.openstreetmap.org/search";
@@ -44,6 +48,24 @@ function normalizePath(rawPath: string): string {
   return path.replace(/^\/\.netlify\/functions\/api/, "/api");
 }
 
+/**
+ * Submitter contact details are collected for moderation only and are never
+ * rendered by the viewer, so they must not reach the anonymous cards endpoint.
+ */
+const PRIVATE_CARD_FIELDS = [
+  "email",
+  "submitterEmail",
+  "submitterName",
+  "optInModeration",
+  "optInNewsletter",
+] as const;
+
+function toPublicCard(card: InfoCard): InfoCard {
+  const publicCard = { ...card };
+  for (const field of PRIVATE_CARD_FIELDS) delete publicCard[field];
+  return publicCard;
+}
+
 function getCardId(path: string): string | null {
   const match = path.match(/\/cards\/([^/]+)$/);
   if (!match || match[1] === "all") return null;
@@ -61,19 +83,22 @@ async function handleCards(req: Request, path: string): Promise<Response> {
   const isAllRoute = path.endsWith("/cards/all");
 
   if (method === "GET" && isAllRoute) {
-    if (!isAuthorized(req.headers)) return unauthorized();
+    const auth = await requireAdmin(req.headers);
+    if (!auth.ok) return auth.response;
     return jsonResponse(await loadCards());
   }
 
-  if (method === "GET" && !cardId) {
-    const cards = (await loadCards()).filter((card) => card.active);
+  if (method === "GET" && !cardId && path.endsWith("/cards")) {
+    const cards = (await loadCards()).filter((card) => card.active).map(toPublicCard);
     return jsonResponse(cards);
   }
 
-  if (!isAuthorized(req.headers)) return unauthorized();
+  const auth = await requireAdmin(req.headers);
+  if (!auth.ok) return auth.response;
 
   if (method === "POST" && !cardId) {
-    const body = (await readJson(req)) as Omit<InfoCard, "id">;
+    const body = sanitizeNewCard(await readJson(req));
+    if (!body) return jsonResponse({ error: "Invalid card payload." }, 400);
     const cards = await loadCards();
     const card: InfoCard = { ...body, id: newId() };
     cards.push(card);
@@ -82,11 +107,12 @@ async function handleCards(req: Request, path: string): Promise<Response> {
   }
 
   if (method === "PUT" && cardId) {
-    const body = (await readJson(req)) as Partial<InfoCard>;
+    const patch = sanitizeCardPatch(await readJson(req));
+    if (!patch) return jsonResponse({ error: "Invalid card payload." }, 400);
     const cards = await loadCards();
     const index = cards.findIndex((c) => c.id === cardId);
     if (index === -1) return jsonResponse({ error: "Not found" }, 404);
-    cards[index] = { ...cards[index], ...body, id: cardId };
+    cards[index] = { ...cards[index], ...patch, id: cardId };
     await saveCards(cards);
     return jsonResponse(cards[index]);
   }
@@ -107,7 +133,8 @@ async function handleGeocode(req: Request, url: URL): Promise<Response> {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  if (!isAuthorized(req.headers)) return unauthorized();
+  const auth = await requireAdmin(req.headers);
+  if (!auth.ok) return auth.response;
 
   const query = url.searchParams.get("q")?.trim();
   if (!query) return jsonResponse({ error: "Missing query parameter q" }, 400);
@@ -184,7 +211,8 @@ async function handleGeocode(req: Request, url: URL): Promise<Response> {
 }
 
 async function handleCalibration(req: Request): Promise<Response> {
-  if (!isAuthorized(req.headers)) return unauthorized();
+  const auth = await requireAdmin(req.headers);
+  if (!auth.ok) return auth.response;
 
   if (req.method === "GET") {
     return jsonResponse(await loadCalibration());
@@ -236,7 +264,8 @@ async function handleRipplesAnchor(req: Request): Promise<Response> {
     return jsonResponse(await loadRipplesAnchor());
   }
 
-  if (!isAuthorized(req.headers)) return unauthorized();
+  const auth = await requireAdmin(req.headers);
+  if (!auth.ok) return auth.response;
 
   if (req.method === "PUT") {
     const body = await readJson(req);
@@ -258,14 +287,15 @@ async function handleRipplesAnchor(req: Request): Promise<Response> {
   return jsonResponse({ error: "Method not allowed" }, 405);
 }
 
-async function handleSubmissions(req: Request, path: string): Promise<Response> {
+async function handleSubmissions(req: Request, path: string, ip: string): Promise<Response> {
   const method = req.method;
   const submissionId = getSubmissionId(path);
   const isApproveRoute = Boolean(submissionId && path.endsWith(`/submissions/${submissionId}/approve`));
 
   if (isApproveRoute) {
     if (method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
-    if (!isAuthorized(req.headers)) return unauthorized();
+    const auth = await requireAdmin(req.headers);
+    if (!auth.ok) return auth.response;
 
     const submissions = await loadSubmissions();
     const submission = submissions.find((s) => s.id === submissionId);
@@ -290,7 +320,8 @@ async function handleSubmissions(req: Request, path: string): Promise<Response> 
 
   if (submissionId) {
     if (method !== "DELETE") return jsonResponse({ error: "Method not allowed" }, 405);
-    if (!isAuthorized(req.headers)) return unauthorized();
+    const auth = await requireAdmin(req.headers);
+    if (!auth.ok) return auth.response;
 
     const submissions = await loadSubmissions();
     const next = submissions.filter((s) => s.id !== submissionId);
@@ -301,11 +332,16 @@ async function handleSubmissions(req: Request, path: string): Promise<Response> 
 
   if (path.endsWith("/submissions")) {
     if (method === "GET") {
-      if (!isAuthorized(req.headers)) return unauthorized();
+      const auth = await requireAdmin(req.headers);
+      if (!auth.ok) return auth.response;
       return jsonResponse(await loadSubmissions());
     }
 
     if (method === "POST") {
+      if (!(await consume("submissionIp", ip))) {
+        return tooManyRequests("Too many submissions. Try again later.");
+      }
+
       const body = await readJson(req);
       const result = sanitizeAnyStorySubmissionInput(body);
       if (!result.ok) {
@@ -333,7 +369,7 @@ function getUploadId(path: string): string | null {
   return match?.[1] ?? null;
 }
 
-async function handleUploads(req: Request, path: string): Promise<Response> {
+async function handleUploads(req: Request, path: string, ip: string): Promise<Response> {
   const uploadId = getUploadId(path);
 
   if (uploadId) {
@@ -345,6 +381,8 @@ async function handleUploads(req: Request, path: string): Promise<Response> {
       headers: {
         "Content-Type": file.contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": "inline",
       },
     });
   }
@@ -354,6 +392,10 @@ async function handleUploads(req: Request, path: string): Promise<Response> {
   }
 
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+
+  if (!(await consume("uploadIp", ip))) {
+    return tooManyRequests("Too many uploads. Try again later.");
+  }
 
   const body = await readJson(req);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -368,9 +410,15 @@ async function handleUploads(req: Request, path: string): Promise<Response> {
   }
   if (!data) return jsonResponse({ error: "Missing image data." }, 400);
 
+  const base64 = data.includes(",") ? data.split(",")[1]! : data;
+  // Reject oversized payloads before allocating the decoded buffer.
+  if (Math.floor((base64.length * 3) / 4) > getMaxUploadBytes()) {
+    return jsonResponse({ error: "Image must be 4MB or smaller." }, 400);
+  }
+
   let bytes: Uint8Array;
   try {
-    const binary = atob(data.includes(",") ? data.split(",")[1]! : data);
+    const binary = atob(base64);
     bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   } catch {
@@ -382,7 +430,12 @@ async function handleUploads(req: Request, path: string): Promise<Response> {
     return jsonResponse({ error: "Image must be 4MB or smaller." }, 400);
   }
 
-  const saved = await saveUpload(bytes, contentType);
+  const sniffed = sniffImageType(bytes);
+  if (!sniffed || sniffed !== contentType) {
+    return jsonResponse({ error: "Only JPEG, PNG, WebP, or GIF images are allowed." }, 400);
+  }
+
+  const saved = await saveUpload(bytes, sniffed);
   return jsonResponse({ ok: true, id: saved.id, url: saved.url }, 201);
 }
 
@@ -394,9 +447,32 @@ async function readJson(req: Request): Promise<unknown> {
   }
 }
 
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default async (req: Request, context: Context): Promise<Response> => {
+  try {
+    return await handleRequest(req, context);
+  } catch (error) {
+    if (error instanceof StoreUnavailableError) {
+      // Never fall through to an empty-store code path: a read/write failure must
+      // not look like "no data" to the caller or to the seeding logic.
+      console.error(error);
+      return jsonResponse({ error: "Storage is temporarily unavailable. Try again later." }, 503);
+    }
+    throw error;
+  }
+};
+
+async function handleRequest(req: Request, context: Context): Promise<Response> {
   const url = new URL(req.url);
   const path = normalizePath(url.pathname);
+  const ip = clientIp(req, context);
+
+  if (path === "/api/auth" || path.startsWith("/api/auth/")) {
+    return handleAuth(req, path, ip);
+  }
+
+  if (path === "/api/admins" || path.startsWith("/api/admins/")) {
+    return handleAdmins(req, path);
+  }
 
   if (path.endsWith("/geocode")) {
     return handleGeocode(req, url);
@@ -411,11 +487,11 @@ export default async (req: Request, _context: Context): Promise<Response> => {
   }
 
   if (path.includes("/uploads")) {
-    return handleUploads(req, path);
+    return handleUploads(req, path, ip);
   }
 
   if (path.includes("/submissions")) {
-    return handleSubmissions(req, path);
+    return handleSubmissions(req, path, ip);
   }
 
   if (path.includes("/cards")) {
@@ -423,7 +499,7 @@ export default async (req: Request, _context: Context): Promise<Response> => {
   }
 
   return jsonResponse({ error: "Not found" }, 404);
-};
+}
 
 export const config: Config = {
   path: "/api/*",

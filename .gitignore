@@ -8,6 +8,10 @@ data/calibration.json
 data/ripples-anchor.json
 data/submissions.json
 data/geocode-cache.json
+data/admins.json
+data/sessions.json
+data/login-rate.json
+data/rate-limits.json
 data/uploads/
 *.bak
 # 8th Wall engine binary is served from node_modules / copied into dist at build.

@@ -3,9 +3,7 @@
   inset: 0;
   margin: 0;
   /* Override .ar-app black fill from shared AR chrome styles. */
-  background:
-    radial-gradient(ellipse 70% 55% at 50% 40%, #faf7f2 0%, transparent 65%),
-    linear-gradient(180deg, #f3efe8 0%, #e9e3d8 100%);
+  background: #e8e2d8;
   color: #2a2a28;
   font-family: system-ui, sans-serif;
   overflow: hidden;
@@ -28,10 +26,6 @@
   z-index: 3;
 }
 
-.map-viewer .ar-ui {
-  z-index: 4;
-}
-
 .map-viewer__status {
   position: absolute;
   left: 1.25rem;
@@ -50,4 +44,250 @@
 
 .map-viewer__status[hidden] {
   display: none !important;
+}
+
+.map-viewer__reveal-replay {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 25;
+  margin: 0;
+  padding: 0.5rem 0.95rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.12);
+  color: #9b2272;
+  font-size: 0.75rem;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.map-viewer__reveal-replay:hover {
+  background: #fff;
+  color: #7a1b5b;
+}
+
+.map-viewer__reveal-replay:focus-visible {
+  outline: 2px solid #9b2272;
+  outline-offset: 2px;
+}
+
+.map-viewer--gradual-reveal .ar-card__marker,
+.map-viewer--gradual-reveal .ar-card__marker--revealed {
+  opacity: var(--pin-reveal-alpha, 0);
+  transition: background 0.15s ease, transform 0.25s ease;
+}
+
+.map-viewer .ar-card__marker {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.map-viewer .ar-card__panel {
+  left: calc(100% + 18px);
+  right: auto;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%) scale(0.92);
+}
+
+.map-viewer .ar-card__panel--visible {
+  transform: translateY(-50%) scale(1);
+  cursor: pointer;
+}
+
+.map-viewer .ar-sheet__close {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .map-viewer {
+    --map-viewer-shelf-width: clamp(360px, 38vw, 520px);
+  }
+
+  .map-viewer.ar-app--sheet-open .map-viewer__reveal-replay {
+    right: calc(var(--map-viewer-shelf-width, 520px) + 1.25rem);
+  }
+
+  .map-viewer .ar-chrome__title {
+    z-index: 210;
+  }
+
+  .map-viewer .ar-chrome__results,
+  .map-viewer .ar-chrome__filter-screen {
+    z-index: 210;
+  }
+
+  .map-viewer .ar-sheet-backdrop {
+    top: 50px;
+    right: var(--map-viewer-shelf-width, 520px);
+    background: rgba(15, 23, 42, 0.12);
+  }
+
+  .map-viewer .ar-sheet-backdrop--visible {
+    pointer-events: none;
+  }
+
+  .map-viewer .ar-sheet {
+    inset: 50px 0 0 auto;
+    width: var(--map-viewer-shelf-width);
+    height: auto;
+    max-height: calc(100dvh - 50px);
+    transform: translateX(100%);
+    border-radius: 14px 0 0 0;
+    box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
+    padding-top: 0;
+    padding-bottom: 0;
+    user-select: text;
+    touch-action: auto;
+  }
+
+  .map-viewer .ar-sheet--visible {
+    transform: translateX(0);
+  }
+
+  .map-viewer .ar-sheet__handle {
+    display: none;
+  }
+
+  .map-viewer .ar-sheet__close {
+    display: flex;
+    position: absolute;
+    top: 0.7rem;
+    right: 0.7rem;
+    z-index: 1;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+    color: #64748b;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .map-viewer .ar-sheet__close:hover {
+    color: #0f172a;
+    border-color: #cbd5e1;
+    background: #f8fafc;
+  }
+
+  .map-viewer .ar-sheet__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 2.5rem 1.15rem 1.25rem;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #e2e8f0;
+  }
+
+  .map-viewer .ar-sheet__body::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .map-viewer .ar-sheet__body::-webkit-scrollbar-track {
+    background: #e2e8f0;
+    border-radius: 999px;
+  }
+
+  .map-viewer .ar-sheet__body::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 999px;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__detail {
+    display: grid;
+    grid-template-columns: minmax(0, 140px) minmax(0, 1fr);
+    column-gap: 1rem;
+    row-gap: 0.55rem;
+    align-items: center;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__detail:not(:has(> .ar-card__image)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__detail > .ar-card__image {
+    grid-column: 1;
+    grid-row: 1;
+    width: 100%;
+    max-width: 140px;
+    max-height: 140px;
+    margin-top: 0;
+    object-fit: contain;
+    object-position: center;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__detail > .ar-card__title {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    font-size: 1.35rem;
+    overflow-wrap: anywhere;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__detail:not(:has(> .ar-card__image)) > .ar-card__title,
+  .map-viewer .ar-sheet__body .ar-card__detail:not(:has(> .ar-card__image)) > .ar-card__company,
+  .map-viewer .ar-sheet__body .ar-card__detail:not(:has(> .ar-card__image)) > .ar-card__address {
+    grid-column: 1;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__detail > .ar-card__company,
+  .map-viewer .ar-sheet__body .ar-card__detail > .ar-card__address {
+    grid-column: 2;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__fields,
+  .map-viewer .ar-sheet__body .ar-card__body,
+  .map-viewer .ar-sheet__body .ar-card__link,
+  .map-viewer .ar-sheet__body .ar-card__detail > .ar-card__entry-menu {
+    grid-column: 1 / -1;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.85rem 1rem;
+    margin-top: 0.35rem;
+    min-width: 0;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__field {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__field-label,
+  .map-viewer .ar-sheet__body .ar-card__field-value {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__field--wide {
+    grid-column: 1 / -1;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__field--image {
+    min-width: 0;
+  }
+
+  .map-viewer .ar-sheet__body .ar-card__field--image .ar-card__image {
+    width: 100%;
+    max-width: 100%;
+    max-height: 160px;
+    object-fit: contain;
+  }
 }

@@ -11,19 +11,57 @@ export function buildCardContentHtml(card: InfoCard): string {
   return buildLegacyCardHtml(card);
 }
 
-/** Compact hover preview. Individuals show name, profession, hometown only. */
+/** Compact hover preview. Omits description and other long story fields. */
 export function buildCardPreviewHtml(card: InfoCard): string {
   if (resolveCardType(card) === "individual" && hasIndividualDetails(card)) {
     return buildIndividualPreviewHtml(card);
   }
-  return buildCardContentHtml(card);
+  if (resolveCardType(card) === "organization" && hasOrganizationDetails(card)) {
+    return buildOrganizationPreviewHtml(card);
+  }
+  return buildLegacyPreviewHtml(card);
+}
+
+function buildLegacyPreviewHtml(card: InfoCard): string {
+  const company = card.companyName?.trim() ?? "";
+  const address = card.address?.trim() ?? "";
+  const imageUrl = safeHref(card.imageUrl ?? "");
+  const linkUrl = safeHref(card.linkUrl ?? "");
+
+  const companyHtml = company
+    ? `<span class="ar-card__company">${escapeHtml(company)}</span>`
+    : "";
+
+  const addressHtml = address
+    ? `<span class="ar-card__address">${escapeHtml(address)}</span>`
+    : "";
+
+  const imageHtml = imageUrl
+    ? `<img class="ar-card__image" src="${escapeAttr(imageUrl)}" alt="" />`
+    : "";
+
+  const linkHtml = linkUrl
+    ? `<a class="ar-card__link" href="${escapeAttr(
+        linkUrl
+      )}" target="_blank" rel="noopener noreferrer">Learn more</a>`
+    : "";
+
+  return `
+    <article class="ar-card__detail ar-card__detail--preview">
+      <strong class="ar-card__title">${escapeHtml(card.title)}</strong>
+      ${companyHtml}
+      ${addressHtml}
+      ${imageHtml}
+      ${linkHtml}
+    </article>
+  `;
 }
 
 function buildLegacyCardHtml(card: InfoCard): string {
   const company = card.companyName?.trim() ?? "";
   const address = card.address?.trim() ?? "";
-  const imageUrl = card.imageUrl?.trim() ?? "";
-  const linkUrl = card.linkUrl?.trim() ?? "";
+  const imageUrl = safeHref(card.imageUrl ?? "");
+  const linkUrl = safeHref(card.linkUrl ?? "");
   const body = card.body ?? "";
 
   const companyHtml = company
@@ -76,22 +114,52 @@ function buildIndividualPreviewHtml(card: InfoCard): string {
   `;
 }
 
+function buildOrganizationPreviewHtml(card: InfoCard): string {
+  const orgName = card.orgName?.trim() || card.companyName?.trim() || card.title;
+  const logoUrl = safeHref((card.logoUrl || card.imageUrl) ?? "");
+  const fields = [
+    textField("Industry", joinList(card.industry)),
+    textField("Head office location", card.nlLocation || card.address),
+  ]
+    .filter(Boolean)
+    .join("");
+
+  return `
+    <article class="ar-card__detail ar-card__detail--preview">
+      <strong class="ar-card__title">${escapeHtml(orgName)}</strong>
+      ${logoUrl ? `<img class="ar-card__image" src="${escapeAttr(logoUrl)}" alt="" />` : ""}
+      ${fields ? `<dl class="ar-card__fields">${fields}</dl>` : ""}
+    </article>
+  `;
+}
+
 function buildIndividualCardHtml(card: InfoCard): string {
-  const photoUrl = (card.logoUrl || card.imageUrl)?.trim() ?? "";
+  const photoUrl = safeHref((card.logoUrl || card.imageUrl) ?? "");
   const fields = [
     textField("Pronouns", card.pronouns),
-    textField("techNL member", card.isTechNlMember),
-    textField("Profession", joinList(card.profession)),
-    textField("Current location", card.currLocation || card.address),
-    textField("Hometown", card.origLocation),
-    emailField("Email", card.email),
+    textField("Are you or your organization a techNL member?", card.isTechNlMember),
+    textField("Profession / Field of Study", joinList(card.profession)),
+    textField("Where do you currently live?", card.currLocation || card.address),
+    textField("Where were you born or do you consider home?", card.origLocation),
     linkField("LinkedIn", card.linkedin),
-    textField("What I love about NL", card.nlDescription),
-    textField("Why I choose NL tech", card.whyDescription),
-    textField("Tech-related dream job", card.dreamJob),
-    textField("Success story", card.story),
-    textField("Newsletter opt-in", boolLabel(card.optInNewsletter)),
-    textField("Consent to share", boolLabel(card.optInModeration)),
+    textField(
+      "What do you love most about working (or studying), or living in Newfoundland and Labrador (NL)?",
+      card.nlDescription,
+      { wide: true }
+    ),
+    textField("Why I choose to work (or study) in the NL tech sector?", card.whyDescription, {
+      wide: true,
+    }),
+    textField(
+      "What is your tech-related dream job? Maybe you already have your dream job, if so, what is it and what do you love most about it?",
+      card.dreamJob,
+      { wide: true }
+    ),
+    textField(
+      "Do you have a tech project or success story that you’d like to share with techNL, something that you’ve worked on, are especially proud of, or excited about? Tell us your story",
+      card.story,
+      { wide: true }
+    ),
   ]
     .filter(Boolean)
     .join("");
@@ -104,38 +172,45 @@ function buildIndividualCardHtml(card: InfoCard): string {
           ? `<img class="ar-card__image" src="${escapeAttr(photoUrl)}" alt="" />`
           : ""
       }
-      <dl class="ar-card__fields">${fields}</dl>
+      ${fields ? `<dl class="ar-card__fields">${fields}</dl>` : ""}
     </article>
   `;
 }
 
 function buildOrganizationCardHtml(card: InfoCard): string {
   const orgName = card.orgName?.trim() || card.companyName?.trim() || card.title;
-  const logoUrl = (card.logoUrl || card.imageUrl)?.trim() ?? "";
+  const logoUrl = safeHref((card.logoUrl || card.imageUrl) ?? "");
   const fields = [
-    textField("Submitter", card.submitterName),
-    emailField("Submitter email", card.submitterEmail),
-    emailField("Organization email", card.orgContactEmail),
-    textField("techNL member", card.isTechNlMember),
+    textField("Are you or your organization a techNL member?", card.isTechNlMember),
     textField("Industry", joinList(card.industry)),
-    textField("Head office", card.nlLocation || card.address),
-    textField("Business locations", joinList(card.locations, "; ")),
-    textField("Export locations", joinList(card.exportLocations, "; ")),
+    textField("Head office location", card.nlLocation || card.address),
+    textField("Where does your organization conduct business?", joinList(card.locations, "; ")),
+    linkField("Website", card.websiteUrl || card.linkUrl),
+    linkField("LinkedIn", card.linkedinUrl),
+    emailField("Organization's General Inquires Email", card.orgContactEmail),
     textField(
       "Year established",
       card.yearEstablished != null ? String(card.yearEstablished) : undefined
     ),
-    textField("Description", card.mainDescription),
-    textField("Company bio", card.companyBio),
-    textField("Stakeholders outside NL", card.stakeholderDescription),
-    textField("Success story", card.storyDescription),
-    linkField("Website", card.websiteUrl || card.linkUrl),
-    linkField("LinkedIn", card.linkedinUrl),
+    textField("Description", card.mainDescription, { wide: true }),
+    textField("Company Bio", card.companyBio, { wide: true }),
+    imageField("Media", card.mediaOneUrl),
+    imageField("Media", card.mediaTwoUrl),
     linkField("YouTube", card.youtubeLink),
-    imageField("Media 1", card.mediaOneUrl),
-    imageField("Media 2", card.mediaTwoUrl),
-    textField("Newsletter opt-in", boolLabel(card.optInNewsletter)),
-    textField("Consent to share", boolLabel(card.optInModeration)),
+    textField(
+      "Does your organization export its technology, products, or services outside of NL? If so, where?",
+      joinList(card.exportLocations, "; ")
+    ),
+    textField(
+      "How do/would you describe the NL tech sector stakeholders who live outside the province?",
+      card.stakeholderDescription,
+      { wide: true }
+    ),
+    textField(
+      "Share a tech-related success story that demonstrates your NL-based organization's impact, whether within Newfoundland and Labrador or beyond? If applicable, please include the country, province, or state connected to your story.",
+      card.storyDescription,
+      { wide: true }
+    ),
   ]
     .filter(Boolean)
     .join("");
@@ -148,7 +223,7 @@ function buildOrganizationCardHtml(card: InfoCard): string {
           ? `<img class="ar-card__image" src="${escapeAttr(logoUrl)}" alt="" />`
           : ""
       }
-      <dl class="ar-card__fields">${fields}</dl>
+      ${fields ? `<dl class="ar-card__fields">${fields}</dl>` : ""}
     </article>
   `;
 }
@@ -179,11 +254,16 @@ function hasOrganizationDetails(card: InfoCard): boolean {
   );
 }
 
-function textField(label: string, value: string | undefined | null): string {
+function textField(
+  label: string,
+  value: string | undefined | null,
+  options?: { wide?: boolean }
+): string {
   const text = value?.trim();
   if (!text) return "";
+  const wideClass = options?.wide ? " ar-card__field--wide" : "";
   return `
-    <div class="ar-card__field">
+    <div class="ar-card__field${wideClass}">
       <dt class="ar-card__field-label">${escapeHtml(label)}</dt>
       <dd class="ar-card__field-value">${escapeHtml(text)}</dd>
     </div>`;
@@ -192,29 +272,27 @@ function textField(label: string, value: string | undefined | null): string {
 function emailField(label: string, email: string | undefined | null): string {
   const text = email?.trim();
   if (!text) return "";
-  return `
-    <div class="ar-card__field">
-      <dt class="ar-card__field-label">${escapeHtml(label)}</dt>
-      <dd class="ar-card__field-value">
-        <a class="ar-card__link" href="mailto:${escapeAttr(text)}">${escapeHtml(text)}</a>
-      </dd>
-    </div>`;
-}
-
-function linkField(label: string, url: string | undefined | null): string {
-  const href = url?.trim();
+  const href = safeHref(`mailto:${text}`);
   if (!href) return "";
   return `
     <div class="ar-card__field">
       <dt class="ar-card__field-label">${escapeHtml(label)}</dt>
-      <dd class="ar-card__field-value">
-        <a class="ar-card__link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(href)}</a>
-      </dd>
+      <dd class="ar-card__field-value ar-card__field-value--link"><a class="ar-card__link" href="${escapeAttr(href)}">${escapeHtml(text)}</a></dd>
+    </div>`;
+}
+
+function linkField(label: string, url: string | undefined | null): string {
+  const href = safeHref(url ?? "");
+  if (!href) return "";
+  return `
+    <div class="ar-card__field">
+      <dt class="ar-card__field-label">${escapeHtml(label)}</dt>
+      <dd class="ar-card__field-value ar-card__field-value--link"><a class="ar-card__link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(href)}</a></dd>
     </div>`;
 }
 
 function imageField(label: string, url: string | undefined | null): string {
-  const href = url?.trim();
+  const href = safeHref(url ?? "");
   if (!href) return "";
   return `
     <div class="ar-card__field ar-card__field--image">
@@ -229,11 +307,6 @@ function joinList(values: string[] | undefined, separator = ", "): string | unde
   if (!values?.length) return undefined;
   const text = values.map((value) => value.trim()).filter(Boolean).join(separator);
   return text || undefined;
-}
-
-function boolLabel(value: boolean | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  return value ? "Yes" : "No";
 }
 
 export interface LocationEntryMenuOptions {
@@ -289,6 +362,19 @@ export function buildCardPreviewWithBackHtml(card: InfoCard): string {
     <button type="button" class="ar-card__back" data-action="back-to-entries">Back</button>
     ${buildCardPreviewHtml(card)}
   `;
+}
+
+/**
+ * Scheme allowlist for anything that ends up in an href or src. Escaping alone
+ * does not stop `javascript:` or `data:` URLs stored on a card before the server
+ * started validating them.
+ */
+export function safeHref(value: string): string {
+  const url = value.trim();
+  if (/^https?:\/\//i.test(url)) return url;
+  if (/^mailto:/i.test(url)) return url;
+  if (url.startsWith("/api/uploads/")) return url;
+  return "";
 }
 
 function escapeHtml(value: string): string {

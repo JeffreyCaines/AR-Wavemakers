@@ -573,13 +573,15 @@ body {
 .ar-chrome__filters {
   width: 100%;
   background-color: #fff;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   max-height: calc(100svh - 50px);
-  padding-bottom: 140px;
 }
 
 .ar-chrome__filter-type {
   position: relative;
+  flex-shrink: 0;
   height: 50px;
   width: 100%;
   padding: 15px;
@@ -625,9 +627,10 @@ body {
 
 .ar-chrome__filter-props--active {
   display: block;
-  max-height: calc(100vh - 100px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
-  padding: 11px 0 24px;
+  padding: 11px 0 140px;
 }
 
 .ar-chrome__filter-prop {
@@ -688,7 +691,8 @@ body {
   font-size: 1em;
   position: absolute;
   top: 85svh;
-  left: 15svw;
+  left: 50%;
+  transform: translateX(-50%);
   align-items: center;
   min-height: 7svh;
   min-width: 60svw;
@@ -839,19 +843,31 @@ body {
 }
 
 .ar-card__marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   width: 18px;
   height: 18px;
+  padding: 0;
   border-radius: 50%;
   background: rgba(153, 30, 114, 0.85);
   /* background: rgba(116, 200, 203, 0.85); */
   border: 2px solid #fff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-family: NeueHaas-Bold, system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
   opacity: 0;
   transform: scale(0.7);
   transition:
     transform 0.25s ease,
     background 0.15s ease,
     opacity 0.25s ease;
+  user-select: none;
 }
 
 .ar-card__marker--revealed {
@@ -895,6 +911,18 @@ body {
   opacity: 1;
   transform: translateX(-50%) scale(1);
   pointer-events: auto;
+}
+
+.ar-app--landscape .ar-card__panel {
+  left: calc(100% + 18px);
+  right: auto;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%) scale(0.92);
+}
+
+.ar-app--landscape .ar-card__panel--visible {
+  transform: translateY(-50%) scale(1);
 }
 
 .ar-card__entry-menu {
@@ -998,6 +1026,14 @@ body {
   border-radius: 8px;
 }
 
+.ar-card__detail--preview .ar-card__image {
+  width: auto;
+  max-width: 100%;
+  max-height: 56px;
+  object-fit: contain;
+  object-position: left center;
+}
+
 .ar-card__title,
 .ar-card__panel strong {
   display: block;
@@ -1055,10 +1091,9 @@ body {
 
 .ar-card__field-label {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  line-height: 1.35;
   color: #64748b;
 }
 
@@ -1068,6 +1103,10 @@ body {
   line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.ar-card__field-value--link {
+  white-space: normal;
 }
 
 .ar-card__field-value .ar-card__link {

@@ -25,6 +25,18 @@ describe("isPinRevealed", () => {
     expect(isPinRevealed(stJohns, ORIGIN, 0, PLAY_SEC, "loop", W, H)).toBe(true);
   });
 
+  it("always reveals people pins in St. John's", () => {
+    const person = {
+      id: "person-st-johns",
+      mapX: 0.9,
+      mapY: 0.1,
+      lat: 47.56,
+      lng: -52.71,
+      currLocation: "St. John's, NL",
+    };
+    expect(isPinRevealed(person, ORIGIN, null, PLAY_SEC, "loop", W, H)).toBe(true);
+  });
+
   it("hides other pins before playback starts", () => {
     expect(isPinRevealed(near, ORIGIN, null, PLAY_SEC, "loop", W, H)).toBe(false);
   });

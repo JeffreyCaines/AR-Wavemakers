@@ -109,8 +109,8 @@ export function cardFormFieldsHtml(): string {
           <label>Success story
             <textarea name="story" rows="6" maxlength="750"></textarea>
           </label>
-          <label class="admin-checkbox"><input name="optInModeration" type="checkbox" /> Consent to share content</label>
-          <label class="admin-checkbox"><input name="optInNewsletter" type="checkbox" /> Join mailing list</label>
+          <label class="admin-checkbox"><input name="optInModeration" type="checkbox" disabled /> Consent to share content</label>
+          <label class="admin-checkbox"><input name="optInNewsletter" type="checkbox" disabled /> Join mailing list</label>
         </fieldset>
 
         <fieldset data-card-fields="organization" class="admin-form__type-fields" hidden disabled>
@@ -146,8 +146,8 @@ export function cardFormFieldsHtml(): string {
           <label>Success story
             <textarea name="storyDescription" rows="4" maxlength="250"></textarea>
           </label>
-          <label class="admin-checkbox"><input name="optInModerationOrg" type="checkbox" /> Consent to share content</label>
-          <label class="admin-checkbox"><input name="optInNewsletterOrg" type="checkbox" /> Join mailing list</label>
+          <label class="admin-checkbox"><input name="optInModerationOrg" type="checkbox" disabled /> Consent to share content</label>
+          <label class="admin-checkbox"><input name="optInNewsletterOrg" type="checkbox" disabled /> Join mailing list</label>
         </fieldset>
 
         <div class="admin-form__map-section">
@@ -272,6 +272,8 @@ export function readCardForm(form: HTMLFormElement, current: CardFormState): Car
     address: String(fd.get("address") || ""),
     active: fd.get("active") === "on",
     cardType,
+    optInModeration: Boolean(current.optInModeration),
+    optInNewsletter: Boolean(current.optInNewsletter),
   };
 
   if (cardType === "individual") {
@@ -288,8 +290,6 @@ export function readCardForm(form: HTMLFormElement, current: CardFormState): Car
     next.whyDescription = optionalText(String(fd.get("whyDescription") || ""));
     next.dreamJob = optionalText(String(fd.get("dreamJob") || ""));
     next.story = optionalText(String(fd.get("story") || ""));
-    next.optInModeration = fd.get("optInModeration") === "on";
-    next.optInNewsletter = fd.get("optInNewsletter") === "on";
     next.logoUrl = optionalText(String(fd.get("logoUrl") || ""));
     return deriveCardDisplayFields(next);
   }
@@ -314,8 +314,6 @@ export function readCardForm(form: HTMLFormElement, current: CardFormState): Car
   next.exportLocations = linesToList(fd.get("exportLocations"));
   next.stakeholderDescription = optionalText(String(fd.get("stakeholderDescription") || ""));
   next.storyDescription = optionalText(String(fd.get("storyDescription") || ""));
-  next.optInModeration = fd.get("optInModerationOrg") === "on";
-  next.optInNewsletter = fd.get("optInNewsletterOrg") === "on";
   next.logoUrl = optionalText(String(fd.get("logoUrlOrg") || ""));
   next.mediaOneUrl = optionalText(String(fd.get("mediaOneUrl") || ""));
   next.mediaTwoUrl = optionalText(String(fd.get("mediaTwoUrl") || ""));
